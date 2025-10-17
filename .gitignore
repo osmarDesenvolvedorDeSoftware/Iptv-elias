@@ -20,7 +20,6 @@ venv
 
 # javascript
 node_modules/
-package-lock.json
 dist/
 ui/node_modules/
 ui/dist/
