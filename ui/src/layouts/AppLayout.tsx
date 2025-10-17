@@ -1,7 +1,8 @@
 import { PropsWithChildren } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Navigate, Outlet } from 'react-router-dom';
 
 import { ToastContainer } from '../components/ToastContainer';
+import { useAuth } from '../providers/AuthProvider';
 import { useTheme } from '../providers/ThemeProvider';
 
 const navigation = [
@@ -14,6 +15,11 @@ const navigation = [
 
 export function AppLayout({ children }: PropsWithChildren) {
   const { mode, toggle } = useTheme();
+  const { isAuthenticated, isLoading, user, logout } = useAuth();
+
+  if (!isLoading && !isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="app-shell">
@@ -38,14 +44,24 @@ export function AppLayout({ children }: PropsWithChildren) {
             <button type="button" className="app-shell__action" onClick={toggle}>
               Tema: {mode === 'light' ? '🌞' : '🌙'}
             </button>
-            <button type="button" className="app-shell__action">
-              Perfil
+            <span className="app-shell__action">
+              {user ? user.name : 'Usuário'}
+            </span>
+            <button type="button" className="app-shell__action" onClick={logout}>
+              Sair
             </button>
           </div>
         </header>
 
         <main className="app-shell__content">
-          {children ?? <Outlet />}
+          {isLoading ? (
+            <div className="d-flex align-items-center justify-content-center gap-2 py-5">
+              <span className="spinner-border spinner-border-sm" aria-hidden="true" />
+              <span>Verificando sessão…</span>
+            </div>
+          ) : (
+            children ?? <Outlet />
+          )}
         </main>
       </div>
     </div>

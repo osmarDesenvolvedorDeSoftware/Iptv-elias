@@ -1,5 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 
+import type { ApiError } from '../data/adapters/ApiAdapter';
 import { getBouquets, saveBouquet } from '../data/services/bouquetService';
 import { Bouquet, CatalogItem, CatalogItemType } from '../data/types';
 import { useToast } from '../providers/ToastProvider';
@@ -158,8 +159,8 @@ export default function Bouquets() {
       const firstBouquet = response.bouquets[0]?.id ?? null;
       setActiveBouquetId(firstBouquet);
     } catch (loadError) {
-      console.error(loadError);
-      setError('Não foi possível carregar os dados de bouquets mockados.');
+      const apiError = loadError as ApiError;
+      setError(apiError?.message ?? 'Não foi possível carregar os dados de bouquets.');
     } finally {
       setLoading(false);
     }
@@ -295,8 +296,8 @@ export default function Bouquets() {
       setOriginalSelections(cloneSelections(selections));
       push('Bouquet salvo com sucesso', 'success');
     } catch (saveError) {
-      console.error(saveError);
-      push('Falha ao salvar o bouquet.', 'error');
+      const apiError = saveError as ApiError;
+      push(apiError?.message ?? 'Falha ao salvar o bouquet.', 'error');
     } finally {
       setSaving(false);
     }

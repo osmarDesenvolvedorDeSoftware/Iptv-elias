@@ -1,24 +1,28 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import type { ApiError } from '../data/adapters/ApiAdapter';
 import { login as loginService } from '../data/services/authService';
 import { useAuth } from '../providers/AuthProvider';
 
-const MOCK_PASSWORD = 'admin123';
-const MOCK_EMAIL = 'operador@tenant.com';
-
 export default function Login() {
   const navigate = useNavigate();
-  const { setSession } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const { setSession, isAuthenticated, isLoading, mockCredentials } = useAuth();
+  const [email, setEmail] = useState(() => mockCredentials?.email ?? '');
+  const [password, setPassword] = useState(() => mockCredentials?.password ?? '');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      navigate('/importacao', { replace: true });
+    }
+  }, [isAuthenticated, isLoading, navigate]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (isSubmitting) {
+    if (isSubmitting || isLoading) {
       return;
     }
 
@@ -26,18 +30,12 @@ export default function Login() {
     setIsSubmitting(true);
 
     try {
-      const response = await loginService();
-      const normalizedEmail = email.trim().toLowerCase();
-
-      if (normalizedEmail !== response.user.email.toLowerCase() || password !== MOCK_PASSWORD) {
-        setError('Credenciais incorretas. Utilize o usuário e senha mockados.');
-        return;
-      }
-
+      const response = await loginService({ email: email.trim(), password });
       setSession(response);
       navigate('/importacao');
     } catch (err) {
-      setError('Não foi possível realizar o login no momento.');
+      const apiError = err as ApiError;
+      setError(apiError?.message ?? 'Não foi possível realizar o login no momento.');
     } finally {
       setIsSubmitting(false);
     }
@@ -54,12 +52,12 @@ export default function Login() {
           name="email"
           type="email"
           autoComplete="username"
-          placeholder={MOCK_EMAIL}
+          placeholder={mockCredentials?.email ?? 'usuario@tenant.com'}
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           className="form-control"
           required
-        />
+          />
       </div>
 
       <div className="form-group mb-3">
@@ -71,7 +69,7 @@ export default function Login() {
           name="password"
           type="password"
           autoComplete="current-password"
-          placeholder="admin123"
+          placeholder={mockCredentials?.password ?? '••••••••'}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           className="form-control"
@@ -85,7 +83,7 @@ export default function Login() {
         </div>
       ) : null}
 
-      <button type="submit" className="btn btn-primary w-100" disabled={isSubmitting}>
+      <button type="submit" className="btn btn-primary w-100" disabled={isSubmitting || isLoading}>
         {isSubmitting ? (
           <span className="d-inline-flex align-items-center justify-content-center gap-2">
             <span className="spinner-border spinner-border-sm" aria-hidden="true" />
@@ -96,9 +94,12 @@ export default function Login() {
         )}
       </button>
 
-      <p className="text-muted text-center mt-3 mb-0">
-        Use <strong>{MOCK_EMAIL}</strong> com senha <strong>{MOCK_PASSWORD}</strong> para autenticar.
-      </p>
+      {mockCredentials ? (
+        <p className="text-muted text-center mt-3 mb-0">
+          Use <strong>{mockCredentials.email}</strong> com senha <strong>{mockCredentials.password}</strong> para autenticar no
+          modo mock.
+        </p>
+      ) : null}
     </form>
   );
 }
