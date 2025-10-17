@@ -11,5 +11,13 @@ class JobLog(db.Model):
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "jobId": self.job_id,
+            "createdAt": self.created_at.isoformat() + "Z",
+            "content": self.content,
+        }
+
     def __repr__(self) -> str:
         return f"<JobLog {self.id} job={self.job_id}>"

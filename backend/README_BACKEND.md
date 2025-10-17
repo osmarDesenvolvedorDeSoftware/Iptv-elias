@@ -9,7 +9,9 @@ Backend mínimo viável em Flask para atender ao front IPTV.
 ## Configuração
 
 1. Copie `.env.example` para `.env` na pasta `backend/` e ajuste os valores se necessário.
-2. Execute as migrações iniciais com Alembic após subir os containers.
+   - Cadastre uma chave da API [TMDb](https://www.themoviedb.org/) e informe em `TMDB_API_KEY`.
+   - Ajuste `TMDB_LANGUAGE`/`TMDB_REGION` caso utilize outra localidade.
+2. Execute as migrações (incluindo a expansão de métricas dos jobs) com Alembic após subir os containers.
 
 ```bash
 cd backend
@@ -51,7 +53,7 @@ curl -s -X POST http://localhost:8000/auth/login \
   -d '{"email":"admin@tenant.com","password":"admin123"}'
 ```
 
-2. Disparar importação dummy:
+2. Disparar importação real (filmes ou séries):
 
 ```bash
 curl -s -X POST http://localhost:8000/importacoes/filmes/run \
@@ -59,10 +61,30 @@ curl -s -X POST http://localhost:8000/importacoes/filmes/run \
   -H "X-Tenant-ID: tenant-demo"
 ```
 
+Opcionalmente, acione o worker diretamente pela Celery registrando o tenant e o usuário:
+
+```bash
+docker-compose exec worker \
+  celery -A app.extensions.celery_app call app.tasks.importers.run_import \
+  args='["filmes","tenant-demo",1]'
+```
+
 3. Consultar status do job:
 
 ```bash
 curl -s http://localhost:8000/jobs/<jobId>/status \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Tenant-ID: tenant-demo"
+```
+
+4. Listar histórico e logs consolidados:
+
+```bash
+curl -s http://localhost:8000/importacoes/filmes \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Tenant-ID: tenant-demo"
+
+curl -s "http://localhost:8000/logs?type=filmes&status=finished" \
   -H "Authorization: Bearer <token>" \
   -H "X-Tenant-ID: tenant-demo"
 ```
@@ -88,5 +110,5 @@ backend/
 
 - A autenticação utiliza JWT (Flask-JWT-Extended) com tokens de acesso e refresh.
 - Multi-tenant: todas as rotas protegidas exigem o cabeçalho `X-Tenant-ID`, validado contra o tenant do usuário autenticado.
-- Jobs de importação são processados em fila Celery com Redis, atualizando progresso dummy em 10 passos.
+- Jobs de importação consultam a API TMDb (filmes e séries), registram progresso real e persistem resumo por item em `job_logs`.
 - Logs estruturados em JSON e CORS habilitado conforme variável `CORS_ORIGINS`.
