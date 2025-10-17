@@ -8,7 +8,7 @@ const navigation = [
   { label: 'Dashboard', to: '/' },
   { label: 'Importação', to: '/importacao' },
   { label: 'Bouquets', to: '/bouquets' },
-  { label: 'Relatórios', to: '/relatorios' },
+  { label: 'Relatórios & Logs', to: '/logs' },
   { label: 'Configurações', to: '/configuracoes' },
 ];
 
