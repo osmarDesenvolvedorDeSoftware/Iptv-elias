@@ -124,6 +124,14 @@ curl -s -X POST http://localhost:8000/config \
   -d '{"importer":{"maxParallelJobs":4}}'
 ```
 
+7. Métricas consolidadas para o dashboard:
+
+```bash
+curl -s http://localhost:8000/metrics/dashboard \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Tenant-ID: tenant-demo"
+```
+
 ## Estrutura de pastas
 
 ```
