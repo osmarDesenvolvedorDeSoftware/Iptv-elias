@@ -10,26 +10,11 @@ from sqlalchemy.orm import joinedload
 
 from ..models import Job, JobLog, JobStatus
 from ..services.jobs import enqueue_import
+from .utils import json_error, tenant_from_request
 
 bp = Blueprint("imports", __name__)
 
 VALID_IMPORT_TYPES = {"filmes", "series"}
-
-
-def _tenant_from_request():
-    tenant_id = request.headers.get("X-Tenant-ID")
-    if not tenant_id:
-        return None, _error("Cabeçalho X-Tenant-ID é obrigatório", HTTPStatus.BAD_REQUEST)
-    identity = get_jwt_identity()
-    if identity.get("tenant_id") != tenant_id:
-        return None, _error("Tenant inválido para o usuário", HTTPStatus.FORBIDDEN)
-    return tenant_id, None
-
-
-def _error(message: str, status: HTTPStatus):
-    response = jsonify({"message": message})
-    response.status_code = status
-    return response
 
 
 def _parse_log_content(log: JobLog) -> dict[str, Any]:
@@ -96,9 +81,9 @@ def _job_log_payload(job: Job) -> dict[str, Any]:
 @jwt_required()
 def run_import(tipo: str):
     if tipo not in VALID_IMPORT_TYPES:
-        return _error("Tipo de importação inválido", HTTPStatus.BAD_REQUEST)
+        return json_error("Tipo de importação inválido", HTTPStatus.BAD_REQUEST)
 
-    tenant_id, error = _tenant_from_request()
+    tenant_id, error = tenant_from_request()
     if error:
         return error
 
@@ -125,7 +110,7 @@ def job_status(job_id: int):
 
     job = Job.query.filter_by(id=job_id, tenant_id=tenant_id).first()
     if not job:
-        return _error("Job não encontrado", HTTPStatus.NOT_FOUND)
+        return json_error("Job não encontrado", HTTPStatus.NOT_FOUND)
 
     payload = job.to_dict()
     return jsonify(payload), HTTPStatus.OK
@@ -135,9 +120,9 @@ def job_status(job_id: int):
 @jwt_required()
 def list_imports(tipo: str):
     if tipo not in VALID_IMPORT_TYPES:
-        return _error("Tipo de importação inválido", HTTPStatus.BAD_REQUEST)
+        return json_error("Tipo de importação inválido", HTTPStatus.BAD_REQUEST)
 
-    tenant_id, error = _tenant_from_request()
+    tenant_id, error = tenant_from_request()
     if error:
         return error
 
@@ -177,9 +162,9 @@ def list_logs():
     status = request.args.get("status")
 
     if job_type and job_type not in VALID_IMPORT_TYPES:
-        return _error("Tipo de importação inválido", HTTPStatus.BAD_REQUEST)
+        return json_error("Tipo de importação inválido", HTTPStatus.BAD_REQUEST)
     if status and status not in {JobStatus.FINISHED, JobStatus.FAILED, JobStatus.RUNNING, JobStatus.QUEUED}:
-        return _error("Status de job inválido", HTTPStatus.BAD_REQUEST)
+        return json_error("Status de job inválido", HTTPStatus.BAD_REQUEST)
 
     page = max(int(request.args.get("page", 1)), 1)
     page_size = max(min(int(request.args.get("pageSize", 20)), 100), 1)
@@ -214,13 +199,13 @@ def list_logs():
 @bp.get("/logs/<int:log_id>")
 @jwt_required()
 def log_details(log_id: int):
-    tenant_id, error = _tenant_from_request()
+    tenant_id, error = tenant_from_request()
     if error:
         return error
 
     log = JobLog.query.join(Job).filter(JobLog.id == log_id, Job.tenant_id == tenant_id).first()
     if not log:
-        return _error("Log não encontrado", HTTPStatus.NOT_FOUND)
+        return json_error("Log não encontrado", HTTPStatus.NOT_FOUND)
 
     payload = _parse_log_content(log)
     payload.update({"jobId": log.job_id})
