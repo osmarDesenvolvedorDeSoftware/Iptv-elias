@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "id": 9001,
+      "jobId": 130,
+      "type": "filmes",
+      "status": "failed",
+      "startedAt": "2025-10-16T23:00:00Z",
+      "finishedAt": "2025-10-16T23:10:12Z",
+      "durationSec": 612,
+      "inserted": 0,
+      "updated": 0,
+      "ignored": 12,
+      "errors": 3,
+      "errorSummary": "TMDb quota exceeded"
+    }
+  ],
+  "filters": {
+    "type": "filmes",
+    "status": "failed",
+    "dateRange": {
+      "from": "2025-10-10",
+      "to": "2025-10-20"
+    }
+  },
+  "page": 1,
+  "pageSize": 20,
+  "total": 5
+}

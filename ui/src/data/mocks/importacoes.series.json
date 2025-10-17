@@ -1,0 +1,27 @@
+{
+  "items": [
+    {
+      "id": 220,
+      "startedAt": "2025-10-16T21:45:00Z",
+      "finishedAt": "2025-10-16T21:50:40Z",
+      "status": "finished",
+      "inserted": 45,
+      "updated": 12,
+      "ignored": 3,
+      "errors": 0,
+      "durationSec": 340,
+      "trigger": "schedule",
+      "user": "scheduler"
+    },
+    {
+      "id": 221,
+      "startedAt": "2025-10-17T07:00:00Z",
+      "status": "queued",
+      "trigger": "manual",
+      "user": "operador@tenant.com"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 64
+}

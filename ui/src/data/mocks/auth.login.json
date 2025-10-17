@@ -1,0 +1,12 @@
+{
+  "token": "mock-jwt-token",
+  "refreshToken": "mock-jwt-refresh",
+  "expiresInSec": 3600,
+  "user": {
+    "id": 42,
+    "name": "Operador Demo",
+    "email": "operador@tenant.com",
+    "role": "operator",
+    "tenantId": "tenant-123"
+  }
+}
