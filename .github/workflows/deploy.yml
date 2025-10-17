@@ -1,0 +1,80 @@
+name: Deploy IPTV UI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Destino do deploy (auto → gh-pages se não houver Vercel)'
+        type: choice
+        required: false
+        default: auto
+        options:
+          - auto
+          - gh-pages
+          - vercel
+          - both
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: production
+      DEPLOY_TARGET: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target || 'auto' }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npx eslint . --max-warnings=0
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iptv-ui-dist
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        if: ${{ env.DEPLOY_TARGET == 'gh-pages' || env.DEPLOY_TARGET == 'auto' && env.VERCEL_TOKEN == '' || env.DEPLOY_TARGET == 'both' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./dist
+          force_orphan: true
+
+      - name: Deploy to Vercel
+        if: ${{ (env.DEPLOY_TARGET == 'vercel' || env.DEPLOY_TARGET == 'both' || (env.DEPLOY_TARGET == 'auto' && env.VERCEL_TOKEN != '')) && env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel pull --yes --environment=production
+          npx vercel build --prod --yes
+          npx vercel deploy --prebuilt --prod --yes

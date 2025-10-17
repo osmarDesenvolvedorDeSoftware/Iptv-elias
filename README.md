@@ -1,5 +1,7 @@
 # IPTV Elias — Plataforma de Gestão de Conteúdo
 
+[![Deploy IPTV UI](https://github.com/SEU_ORG/Iptv-elias/actions/workflows/deploy.yml/badge.svg)](https://github.com/SEU_ORG/Iptv-elias/actions/workflows/deploy.yml)
+
 Este repositório concentra duas frentes principais:
 
 1. **Backend Django existente**, responsável pelas rotinas atuais do sistema IPTV.
@@ -133,38 +135,27 @@ Consulte `docs/iptv-ui-plan.md` para o plano completo de implementação das fas
    - Modo real: `npm run dev` com `.env.local` apontando para o backend HTTP.
  - Em produção, defina `VITE_API_BASE_URL` e mantenha `VITE_USE_MOCK=false` para que todos os services utilizem o `ApiAdapter`.
 
-## 🚀 Build & Deploy
+## 🚀 Deploy Automatizado
+
+- O workflow **Deploy IPTV UI** executa lint (`eslint . --max-warnings=0`), build (`npm run build`) e publica automaticamente o conteúdo de `dist/` no branch `gh-pages` a cada push em `main`.
+- Para publicar na **Vercel**, cadastre os segredos `VERCEL_TOKEN`, `VERCEL_ORG_ID` e `VERCEL_PROJECT_ID`; o mesmo workflow detecta os valores e executa `vercel deploy` após o build.
+- Deploy manual: acione **Actions → Deploy IPTV UI → Run workflow**, escolha o destino (`auto`, `gh-pages`, `vercel` ou `both`) e confirme. Útil para hotfixes ou rollback imediato.
+- Relatórios completos e instruções de fallback estão disponíveis em [`docs/DEPLOY_PLAYBOOK.md`](docs/DEPLOY_PLAYBOOK.md).
+
+## 📦 Build & QA
 
 1. **Instale dependências e gere o build otimizado**
    ```bash
    npm install
    npm run build
    ```
-   O bundle minificado ficará disponível em `dist/` (gerado automaticamente a partir de `ui/`). Use `npm run preview` para validar localmente com o servidor estático do Vite.
+   Os artefatos ficam em `dist/` (equivalente a `ui/dist` quando acessado a partir da pasta `ui/`). Utilize `npm run preview` para validar com o servidor estático do Vite.
 
-2. **Servir via Nginx (exemplo enxuto)**
-   ```nginx
-   server {
-     listen 80;
-     server_name iptv.example.com;
-     root /srv/iptv/dist;
-     index index.html;
-     location / {
-       try_files $uri /index.html;
-     }
-   }
-   ```
-   Copie os arquivos de `dist/` para `/srv/iptv/dist` (ou diretório equivalente) e reinicie o serviço Nginx.
-
-3. **Deploy em plataformas estáticas (Vercel, Netlify, etc.)**
-   - Configure o diretório de saída como `dist` e o comando de build `npm run build`.
-   - Exporte as variáveis `VITE_API_BASE_URL` e `VITE_USE_MOCK` no painel da plataforma (ou via `vercel env`/`netlify env`).
-
-4. **Alternar entre mocks e API real**
+2. **Alternar entre mocks e API real**
    - Crie arquivos `.env.local`, `.env.production` conforme o ambiente.
    - Defina `VITE_USE_MOCK=true` para desenvolvimento off-line e `false` em produção.
 
-5. **Checklist rápido de QA manual**
+3. **Checklist rápido de QA manual**
    - Login autentica e redireciona para Importação.
    - Cards de importação exibem histórico e barras de progresso.
    - Dual-list permite mover, remover e reordenar itens por mouse/teclado.
@@ -181,3 +172,4 @@ Consulte `docs/iptv-ui-plan.md` para o plano completo de implementação das fas
 - [x] Fase 1D – Bouquets, Logs e Configurações com mocks.
 - [x] Fase 2 – Integração API real.
 - [x] Fase 3 – Hardening & Build.
+- [x] Fase 3B – Deploy & CI/CD.

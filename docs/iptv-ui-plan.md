@@ -323,6 +323,11 @@
 - Adicionar testes básicos (unitários para services, testes de integração/UI com Cypress/Playwright mockado).
 - Otimizar performance (lazy load de páginas, memorização de listas grandes, compressão de imagens).
 
+### Fase 3B – Deploy & CI/CD ✅
+- Novo playbook [`docs/DEPLOY_PLAYBOOK.md`](DEPLOY_PLAYBOOK.md) descrevendo build (`npm run build`), publicação estática (Nginx, GitHub Pages, Vercel) e rollback.
+- Workflow `deploy.yml` no GitHub Actions executando `npm ci`, lint (`eslint . --max-warnings=0`), build, upload de artefato e publicação em `gh-pages`, com opção automática para Vercel via segredos (`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`).
+- Documentação atualizada (README com badge de status e seção “Deploy Automatizado”) alinhando requisitos de Node 20 LTS / npm 10+ e direcionando a equipe para o playbook.
+
 ### Checklist de QA e Build
 - [x] Login funcional.
 - [x] Importação com cards separados.
@@ -347,10 +352,10 @@
 - **Tema dark/light:** Argon não possui tema escuro completo; será necessário ajustar variáveis SCSS ou adicionar classes customizadas (risco de inconsistência visual).
 - **Logs extensos:** exibição de logs grandes no modal pode afetar performance; considerar virtualização ou download separado.
 - **Agendamentos em tempo real:** polling frequente pode gerar carga; supõe-se que API suportará endpoints eficientes ou WebSockets (fora do escopo inicial).
-- **Pipeline de build e deploy:** dependemos de provisionar CDN/servidor estático (Nginx, Vercel) com cache busting; garantir automação antes de publicar versão 1.1.
+- **Pipeline de build e deploy:** mitigado com o workflow `deploy.yml`; monitorar credenciais (tokens Vercel) e permissões de `gh-pages` a cada rotação.
 - **Integração contínua:** configurar lint/test/build no CI evita regressões de acessibilidade e performance ao evoluir features.
 
-## 7. Próximos passos
-- Preparar playbook de deploy (scripts IaC ou GitHub Actions) para publicar a build estática.
-- Planejar versão 1.1 com testes automatizados de UI (Playwright) e monitoramento de performance (Lighthouse, Web Vitals).
-- Mapear métricas de observabilidade no backend para correlacionar com os novos toasts/alertas do frontend.
+## 7. Versão 1.1 – próximos passos
+- Expandir cobertura de testes automatizados (unitários + Playwright) para rotas principais e componentes críticos.
+- Definir monitoramento contínuo (Lighthouse CI, Web Vitals) integrado ao pipeline ou a jobs dedicados.
+- Mapear métricas de observabilidade no backend para correlacionar com toasts/alertas e garantir SLA fim-a-fim.
