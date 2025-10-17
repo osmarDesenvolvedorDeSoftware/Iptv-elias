@@ -1,0 +1,55 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: iptv
+      MYSQL_ROOT_PASSWORD: iptv
+      MYSQL_USER: iptv
+      MYSQL_PASSWORD: iptv
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+  redis:
+    image: redis:7.2
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    image: python:3.11-slim
+    depends_on:
+      - db
+      - redis
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      FLASK_APP: wsgi.py
+      PYTHONPATH: /app
+    volumes:
+      - ./:/app
+    command: ["sh", "-c", "pip install -r requirements.txt && flask run --host=0.0.0.0 --port=8000"]
+    ports:
+      - "8000:8000"
+
+  worker:
+    image: python:3.11-slim
+    depends_on:
+      - api
+      - redis
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+    volumes:
+      - ./:/app
+    command: ["sh", "-c", "pip install -r requirements.txt && celery -A app.extensions.celery_app worker --loglevel=info"]
+
+volumes:
+  db_data:

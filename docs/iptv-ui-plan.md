@@ -359,3 +359,14 @@
 - Expandir cobertura de testes automatizados (unitários + Playwright) para rotas principais e componentes críticos.
 - Definir monitoramento contínuo (Lighthouse CI, Web Vitals) integrado ao pipeline ou a jobs dedicados.
 - Mapear métricas de observabilidade no backend para correlacionar com toasts/alertas e garantir SLA fim-a-fim.
+
+## Backend
+
+### Fase B1A – Infra básica ✅
+- API Flask com autenticação JWT (login, refresh, logout) alinhada ao SPA.
+- Multi-tenant validado via cabeçalho `X-Tenant-ID` em todas as rotas protegidas.
+- Fila Celery + Redis com endpoints `/importacoes/{tipo}/run` e `/jobs/{id}/status` retornando progresso dummy.
+- Migração inicial Alembic com tabelas `tenants`, `users`, `jobs`, `job_logs` e seed de tenant demo.
+
+### Próximo passo – Fase B1B
+- Implementar lógica real dos importadores (TMDb, listas etc.) e persistência detalhada.
