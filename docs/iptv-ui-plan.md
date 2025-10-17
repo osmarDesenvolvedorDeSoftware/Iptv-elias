@@ -281,34 +281,26 @@
 - **Fase 1A concluída ✅** — Estrutura inicial do SPA configurada com roteamento, layouts (App/Auth) e provedor de tema persistente.
 - **Fase 1B concluída ✅** — Camada de dados mock implementada com `MockAdapter` (delay de 200–600 ms), serviços tipados (auth, importer, bouquets, logs, config) e fixtures JSON seguindo os contratos.
 - **Fase 1C concluída ✅** — Telas de Login e Importação entregues utilizando os serviços mockados, com contexto de autenticação, cards de importação, estados (loading/erro/vazio) e toasts para ações simuladas.
+- **Fase 1D concluída ✅** — Bouquets, Relatórios e Configurações operando com mocks, dual-list, modal de logs e formulários validados.
 
 ### Status atual do Frontend
 - ✅ 1A – Estrutura base (layouts, tema e roteamento inicial).
 - ✅ 1B – Mocks e serviços tipados.
 - ✅ 1C – Login & Importação integrados aos mocks.
-- 🔜 1D – Integração completa com Bouquets, Logs e Config.
+- ✅ 1D – Bouquets, Logs e Configurações com navegação completa e feedbacks simulados.
+- 🔜 2 – Integração API real.
 
-### Fase 2 — Bouquets
-- Desenvolver componente DualList acessível (teclado, ARIA) com busca e filtros.
-- Integrar com `MockAdapter` para carregar catálogo, atualizar seleção e persistir em memória.
-- Implementar toasts para sucesso/erro, loading overlay no botão `Salvar`.
+### Observações técnicas recentes
+- Dual-list de bouquets com movimentação individual, total e reordenação simples.
+- Modal de logs carregando detalhes on-demand com estados de loading e erro.
+- Formulários de configuração com abas, validação básica e alerta de reinício de worker.
 
-### Fase 3 — Logs/Relatórios
-- Construir filtros reutilizando inputs Argon.
-- Implementar tabela paginada com dados mock, incluindo badges de status.
-- Criar modal Bootstrap para detalhe de log; conectar ao serviço `logService.getLog(id)`.
-
-### Fase 4 — Configurações
-- Montar formulários com validação (campos obrigatórios, formatos) e tooltips de ajuda.
-- Mostrar aviso de reinício quando API retornar `requiresWorkerRestart`.
-- Suporte a desfazer alterações (reset para dados carregados).
-
-### Fase 5 — Integração API real
+### Fase 2 — Integração API real
 - Implementar `ApiAdapter` com `fetch`/`axios`, interceptadores para JWT e tenant.
 - Substituir mocks por chamadas reais, mantendo contratos documentados.
 - Adicionar refresh de token e tratamento de rate-limit (mostrar badge/alerta).
 
-### Fase 6 — Hardening
+### Fase 3 — Hardening
 - Revisar acessibilidade (atalhos teclado na dual-list, labels, contraste, aria-live para toasts).
 - Adicionar testes básicos (unitários para services, testes de integração/UI com Cypress/Playwright mockado).
 - Otimizar performance (lazy load de páginas, memorização de listas grandes, compressão de imagens).
@@ -328,4 +320,3 @@
 - **Tema dark/light:** Argon não possui tema escuro completo; será necessário ajustar variáveis SCSS ou adicionar classes customizadas (risco de inconsistência visual).
 - **Logs extensos:** exibição de logs grandes no modal pode afetar performance; considerar virtualização ou download separado.
 - **Agendamentos em tempo real:** polling frequente pode gerar carga; supõe-se que API suportará endpoints eficientes ou WebSockets (fora do escopo inicial).
-
