@@ -23,6 +23,7 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 let toastCounter = 0;
+const TOAST_TIMEOUT_MS = 5000;
 
 export function ToastProvider({ children }: PropsWithChildren) {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -38,9 +39,9 @@ export function ToastProvider({ children }: PropsWithChildren) {
 
       setToasts((current) => [...current, { id, message, variant }]);
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         remove(id);
-      }, 4000);
+      }, TOAST_TIMEOUT_MS);
     },
     [remove],
   );

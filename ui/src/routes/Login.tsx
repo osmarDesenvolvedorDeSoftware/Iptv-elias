@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
@@ -12,12 +12,19 @@ export default function Login() {
   const [password, setPassword] = useState(() => mockCredentials?.password ?? '');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const emailInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
       navigate('/importacao', { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      emailInputRef.current?.focus();
+    }
+  }, [isLoading]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -57,7 +64,8 @@ export default function Login() {
           onChange={(event) => setEmail(event.target.value)}
           className="form-control"
           required
-          />
+          ref={emailInputRef}
+        />
       </div>
 
       <div className="form-group mb-3">

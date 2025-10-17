@@ -7,6 +7,7 @@ import { AuthProvider } from './providers/AuthProvider';
 import { ToastProvider } from './providers/ToastProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { appRoutes, authRoutes } from './routes';
+import { ToastContainer } from './components/ToastContainer';
 
 export function App() {
   return (
@@ -14,7 +15,19 @@ export function App() {
       <AuthProvider>
         <ToastProvider>
           <BrowserRouter>
-            <Suspense fallback={<div>Carregando...</div>}>
+            <ToastContainer />
+            <Suspense
+              fallback={
+                <div
+                  className="d-flex flex-column align-items-center justify-content-center py-5"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="spinner-border text-primary mb-3" aria-hidden="true" />
+                  <span className="fw-semibold">Carregando interface…</span>
+                </div>
+              }
+            >
               <Routes>
                 <Route element={<AuthLayout />}>
                   {authRoutes.map((route) => (

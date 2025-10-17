@@ -13,7 +13,9 @@ As fases 1A, 1B, 1C e 1D do plano de migração já foram concluídas: a estrutu
 ui/
 └── src/
     ├── App.tsx
+    ├── main.tsx
     ├── components/
+    │   ├── DualList.tsx
     │   ├── ImportCard.tsx
     │   ├── LogModal.tsx
     │   └── ToastContainer.tsx
@@ -46,6 +48,8 @@ ui/
     │   ├── AuthProvider.tsx
     │   ├── ThemeProvider.tsx
     │   └── ToastProvider.tsx
+    ├── styles/
+    │   └── app.css
     ├── routes.tsx
     └── routes/
         ├── Bouquets.tsx
@@ -59,6 +63,7 @@ ui/
 - `App.tsx`: inicializa o roteamento e aplica os provedores globais (tema, autenticação mockada e toasts).
 - `components/ImportCard.tsx`: card reutilizável para exibir status e histórico de importações.
 - `components/LogModal.tsx`: modal Bootstrap sem dependências externas para exibir o texto completo de um log.
+- `components/DualList.tsx`: componente memoizado com acessibilidade de teclado para as listas de bouquets.
 - `components/ToastContainer.tsx`: container fixo para alertas disparados pelas ações simuladas.
 - `ApiAdapter.ts`: cliente HTTP tipado com `fetch`, headers automáticos (`Authorization`, `X-Tenant-ID`), refresh de token e logs em modo dev.
 - `MockAdapter.ts`: carrega fixtures JSON com delay aleatório para simular chamadas HTTP.
@@ -69,7 +74,7 @@ ui/
 - `routes.tsx`: mapa de rotas da SPA com páginas reais para Bouquets, Logs e Configurações.
 - `routes/Login.tsx`: tela real de autenticação mockada com alerta de erro e spinner no botão.
 - `routes/Importacao.tsx`: página real exibindo cards de importações de filmes e séries.
-- `routes/Bouquets.tsx`: dual-list com filtros de catálogo e persistência simulada.
+- `routes/Bouquets.tsx`: dual-list com filtros de catálogo e persistência simulada, usando componente dedicado e suporte a teclado.
 - `routes/Logs.tsx`: tabela paginada com filtros e modal de detalhe do log.
 - `routes/Config.tsx`: formulários tabulados com validação básica e alerta de reinício.
 
@@ -126,7 +131,47 @@ Consulte `docs/iptv-ui-plan.md` para o plano completo de implementação das fas
 3. **Alternar entre modos mock vs. real**
    - Modo mock: `VITE_USE_MOCK=true npm run dev` (ou `npm run dev -- --mock`, garantindo que a flag defina `VITE_USE_MOCK=true`).
    - Modo real: `npm run dev` com `.env.local` apontando para o backend HTTP.
-   - Em produção, defina `VITE_API_BASE_URL` e mantenha `VITE_USE_MOCK=false` para que todos os services utilizem o `ApiAdapter`.
+ - Em produção, defina `VITE_API_BASE_URL` e mantenha `VITE_USE_MOCK=false` para que todos os services utilizem o `ApiAdapter`.
+
+## 🚀 Build & Deploy
+
+1. **Instale dependências e gere o build otimizado**
+   ```bash
+   npm install
+   npm run build
+   ```
+   O bundle minificado ficará disponível em `dist/` (gerado automaticamente a partir de `ui/`). Use `npm run preview` para validar localmente com o servidor estático do Vite.
+
+2. **Servir via Nginx (exemplo enxuto)**
+   ```nginx
+   server {
+     listen 80;
+     server_name iptv.example.com;
+     root /srv/iptv/dist;
+     index index.html;
+     location / {
+       try_files $uri /index.html;
+     }
+   }
+   ```
+   Copie os arquivos de `dist/` para `/srv/iptv/dist` (ou diretório equivalente) e reinicie o serviço Nginx.
+
+3. **Deploy em plataformas estáticas (Vercel, Netlify, etc.)**
+   - Configure o diretório de saída como `dist` e o comando de build `npm run build`.
+   - Exporte as variáveis `VITE_API_BASE_URL` e `VITE_USE_MOCK` no painel da plataforma (ou via `vercel env`/`netlify env`).
+
+4. **Alternar entre mocks e API real**
+   - Crie arquivos `.env.local`, `.env.production` conforme o ambiente.
+   - Defina `VITE_USE_MOCK=true` para desenvolvimento off-line e `false` em produção.
+
+5. **Checklist rápido de QA manual**
+   - Login autentica e redireciona para Importação.
+   - Cards de importação exibem histórico e barras de progresso.
+   - Dual-list permite mover, remover e reordenar itens por mouse/teclado.
+   - Modal de logs abre com foco preso e fecha com `Esc`.
+   - Configurações salvam com toast e alerta de reinício quando necessário.
+   - Tema claro/escuro alterna e persiste após recarregar a página.
+   - Requisições reais retornam sem erros (verificar console/redes 200).
 
 ## Progresso das fases
 
@@ -135,4 +180,4 @@ Consulte `docs/iptv-ui-plan.md` para o plano completo de implementação das fas
 - [x] Fase 1C – Páginas Login e Importação.
 - [x] Fase 1D – Bouquets, Logs e Configurações com mocks.
 - [x] Fase 2 – Integração API real.
-- [ ] Fase 3 – Hardening.
+- [x] Fase 3 – Hardening & Build.

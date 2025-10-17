@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
 import { getConfig, saveConfig } from '../data/services/configService';
@@ -57,10 +57,27 @@ export default function Configuracoes() {
   const [saving, setSaving] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [restartRequired, setRestartRequired] = useState(false);
+  const importerFirstFieldRef = useRef<HTMLInputElement>(null);
+  const tmdbFirstFieldRef = useRef<HTMLInputElement>(null);
+  const notificationsFirstFieldRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadConfig();
   }, []);
+
+  useEffect(() => {
+    if (!config || loading) {
+      return;
+    }
+
+    const focusTargets = {
+      importer: importerFirstFieldRef.current,
+      tmdb: tmdbFirstFieldRef.current,
+      notifications: notificationsFirstFieldRef.current,
+    } satisfies Record<TabKey, HTMLInputElement | null>;
+
+    focusTargets[activeTab]?.focus();
+  }, [activeTab, config, loading]);
 
   const hasChanges = useMemo(() => {
     if (!config || !initialConfig) {
@@ -299,6 +316,7 @@ export default function Configuracoes() {
                       name="importer.movieDelayMs"
                       value={config.importer.movieDelayMs}
                       onChange={handleInputChange}
+                      ref={importerFirstFieldRef}
                     />
                     {importerErrors.movieDelay ? (
                       <div className="invalid-feedback">Informe um valor maior ou igual a 0.</div>
@@ -383,6 +401,7 @@ export default function Configuracoes() {
                       name="tmdb.apiKey"
                       value={config.tmdb.apiKey}
                       onChange={handleInputChange}
+                      ref={tmdbFirstFieldRef}
                     />
                     {tmdbErrors.apiKey ? (
                       <div className="invalid-feedback">Informe a chave da API do TMDb.</div>
@@ -435,6 +454,7 @@ export default function Configuracoes() {
                         name="notifications.emailAlerts"
                         checked={config.notifications.emailAlerts}
                         onChange={handleInputChange}
+                        ref={notificationsFirstFieldRef}
                       />
                       <label className="custom-control-label" htmlFor="notifications-email">
                         Enviar alertas por e-mail para falhas de importação

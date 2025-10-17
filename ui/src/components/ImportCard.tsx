@@ -1,3 +1,5 @@
+import { memo, useMemo } from 'react';
+
 import { ImportJobHistoryItem } from '../data/types';
 
 const statusLabels: Record<ImportJobHistoryItem['status'], string> = {
@@ -49,7 +51,7 @@ function formatProgress(progress?: number) {
   return Math.round(progress * 100);
 }
 
-export function ImportCard({
+export const ImportCard = memo(function ImportCard({
   title,
   loading,
   error,
@@ -60,18 +62,27 @@ export function ImportCard({
   onConfigure,
   actionLoading,
 }: ImportCardProps) {
-  const orderedItems = [...items].sort(
-    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+  const orderedItems = useMemo(
+    () =>
+      [...items].sort(
+        (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+      ),
+    [items],
   );
-  const currentJob =
-    orderedItems.find((job) => job.status === 'running' || job.status === 'queued') ||
-    orderedItems[0];
-  const history = orderedItems.slice(0, 5);
-  const runningProgress =
-    currentJob?.status === 'running' ? formatProgress(currentJob.progress) : null;
+  const currentJob = useMemo(
+    () =>
+      orderedItems.find((job) => job.status === 'running' || job.status === 'queued') ||
+      orderedItems[0],
+    [orderedItems],
+  );
+  const history = useMemo(() => orderedItems.slice(0, 5), [orderedItems]);
+  const runningProgress = useMemo(
+    () => (currentJob?.status === 'running' ? formatProgress(currentJob.progress) : null),
+    [currentJob],
+  );
 
   return (
-    <div className="card import-card">
+    <div className="card import-card h-100" aria-busy={loading}>
       <div className="card-header d-flex align-items-center justify-content-between">
         <h2 className="h5 mb-0">{title}</h2>
         <div className="btn-group gap-2">
@@ -94,12 +105,19 @@ export function ImportCard({
 
       <div className="card-body">
         {loading ? (
-          <div className="d-flex align-items-center gap-2 py-4">
-            <span className="spinner-border spinner-border-sm" aria-hidden="true" />
-            <span>Carregando informações…</span>
+          <div className="placeholder-glow" role="status" aria-live="polite">
+            <div className="placeholder col-6 mb-3" style={{ height: '1.25rem' }} />
+            <div className="placeholder col-12 mb-3" style={{ height: '2.5rem' }} />
+            {[...Array(3)].map((_, index) => (
+              <div
+                key={index}
+                className="placeholder col-12 mb-2"
+                style={{ height: '1.75rem' }}
+              />
+            ))}
           </div>
         ) : error ? (
-          <div className="alert alert-danger" role="alert">
+          <div className="alert alert-danger" role="alert" aria-live="assertive">
             <div className="d-flex flex-column gap-2">
               <strong>Não foi possível carregar os dados.</strong>
               <span>{error}</span>
@@ -178,4 +196,4 @@ export function ImportCard({
       </div>
     </div>
   );
-}
+});

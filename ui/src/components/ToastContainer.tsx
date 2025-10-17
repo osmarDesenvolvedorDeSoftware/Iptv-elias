@@ -19,12 +19,15 @@ export function ToastContainer() {
       style={{ top: '1.5rem', right: '1.5rem', zIndex: 1080, minWidth: '18rem', position: 'fixed' }}
       role="status"
       aria-live="polite"
+      aria-atomic="true"
+      aria-label="Notificações"
     >
       {toasts.map((toast) => (
         <div
           key={toast.id}
           className={`${variantClassMap[toast.variant]} d-flex align-items-center justify-content-between gap-3 mb-2`}
           data-variant={toast.variant}
+          role="alert"
         >
           <span className="me-3">{toast.message}</span>
           <button

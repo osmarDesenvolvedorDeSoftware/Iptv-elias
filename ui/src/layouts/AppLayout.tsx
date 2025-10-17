@@ -1,7 +1,6 @@
 import { PropsWithChildren } from 'react';
 import { NavLink, Navigate, Outlet } from 'react-router-dom';
 
-import { ToastContainer } from '../components/ToastContainer';
 import { useAuth } from '../providers/AuthProvider';
 import { useTheme } from '../providers/ThemeProvider';
 
@@ -23,7 +22,6 @@ export function AppLayout({ children }: PropsWithChildren) {
 
   return (
     <div className="app-shell">
-      <ToastContainer />
       <aside className="app-shell__sidebar">
         <div className="app-shell__brand">IPTV Admin</div>
         <nav>

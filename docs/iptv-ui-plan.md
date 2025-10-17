@@ -318,10 +318,19 @@
 - Substituir mocks por chamadas reais, mantendo contratos documentados.
 - Adicionar refresh de token e tratamento de rate-limit (mostrar badge/alerta).
 
-### Fase 3 — Hardening
+### Fase 3 — Hardening ✅
 - Revisar acessibilidade (atalhos teclado na dual-list, labels, contraste, aria-live para toasts).
 - Adicionar testes básicos (unitários para services, testes de integração/UI com Cypress/Playwright mockado).
 - Otimizar performance (lazy load de páginas, memorização de listas grandes, compressão de imagens).
+
+### Checklist de QA e Build
+- [x] Login funcional.
+- [x] Importação com cards separados.
+- [x] Dual-list operando.
+- [x] Logs abrindo modal.
+- [x] Configurações com toast + alerta de reinício.
+- [x] Tema dark/light persistente.
+- [x] API real respondendo sem erros.
 
 ## 5. Critérios de aceite
 - Página Importação com título central “Importação” e dois cards lado a lado, cada um exibindo somente itens do seu domínio (Filmes ou Séries).
@@ -338,3 +347,10 @@
 - **Tema dark/light:** Argon não possui tema escuro completo; será necessário ajustar variáveis SCSS ou adicionar classes customizadas (risco de inconsistência visual).
 - **Logs extensos:** exibição de logs grandes no modal pode afetar performance; considerar virtualização ou download separado.
 - **Agendamentos em tempo real:** polling frequente pode gerar carga; supõe-se que API suportará endpoints eficientes ou WebSockets (fora do escopo inicial).
+- **Pipeline de build e deploy:** dependemos de provisionar CDN/servidor estático (Nginx, Vercel) com cache busting; garantir automação antes de publicar versão 1.1.
+- **Integração contínua:** configurar lint/test/build no CI evita regressões de acessibilidade e performance ao evoluir features.
+
+## 7. Próximos passos
+- Preparar playbook de deploy (scripts IaC ou GitHub Actions) para publicar a build estática.
+- Planejar versão 1.1 com testes automatizados de UI (Playwright) e monitoramento de performance (Lighthouse, Web Vitals).
+- Mapear métricas de observabilidade no backend para correlacionar com os novos toasts/alertas do frontend.

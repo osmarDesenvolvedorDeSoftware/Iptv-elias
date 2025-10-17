@@ -1,6 +1,7 @@
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
+import { DualList, DualListHandle, DualListItem } from '../components/DualList';
 import { getBouquets, saveBouquet } from '../data/services/bouquetService';
 import { Bouquet, CatalogItem, CatalogItemType } from '../data/types';
 import { useToast } from '../providers/ToastProvider';
@@ -53,6 +54,9 @@ export default function Bouquets() {
   const [filters, setFilters] = useState<FiltersState>({ search: '', type: 'all' });
   const [availableSelection, setAvailableSelection] = useState<Set<string>>(new Set());
   const [bouquetSelection, setBouquetSelection] = useState<Set<string>>(new Set());
+  const availableListRef = useRef<DualListHandle>(null);
+  const selectedListRef = useRef<DualListHandle>(null);
+  const actionButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     loadData();
@@ -62,6 +66,12 @@ export default function Bouquets() {
     setAvailableSelection(new Set());
     setBouquetSelection(new Set());
   }, [activeBouquetId]);
+
+  useEffect(() => {
+    if (!loading && activeBouquetId) {
+      availableListRef.current?.focusFirst();
+    }
+  }, [activeBouquetId, loading]);
 
   const catalogMap = useMemo(() => {
     const map = new Map<string, CatalogItem>();
@@ -122,6 +132,30 @@ export default function Bouquets() {
       .map((id) => catalogMap.get(id))
       .filter(Boolean) as CatalogItem[];
   }, [activeBouquetId, catalogMap, selections]);
+
+  const availableListItems = useMemo<DualListItem[]>(
+    () =>
+      filteredAvailableItems.map((item) => ({
+        id: item.id,
+        title: item.title,
+        meta: getItemMetadata(item),
+        badgeLabel: item.type === 'movie' ? 'Filme' : 'Série',
+        badgeTone: 'accent',
+      })),
+    [filteredAvailableItems],
+  );
+
+  const selectedListItems = useMemo<DualListItem[]>(
+    () =>
+      selectedItems.map((item, index) => ({
+        id: item.id,
+        title: item.title,
+        meta: getItemMetadata(item),
+        badgeLabel: `#${index + 1}`,
+        badgeTone: 'primary',
+      })),
+    [selectedItems],
+  );
 
   const activeBouquet = useMemo(
     () => bouquets.find((bouquet) => bouquet.id === activeBouquetId) ?? null,
@@ -320,6 +354,32 @@ export default function Bouquets() {
     }
   }
 
+  function setActionButtonRef(index: number) {
+    return (element: HTMLButtonElement | null) => {
+      actionButtonRefs.current[index] = element;
+    };
+  }
+
+  function focusActionButton(index: number) {
+    actionButtonRefs.current[index]?.focus();
+  }
+
+  function focusAvailableList() {
+    if (availableListItems.length > 0) {
+      availableListRef.current?.focusFirst();
+    } else {
+      focusActionButton(2);
+    }
+  }
+
+  function focusSelectedList() {
+    if (selectedListItems.length > 0) {
+      selectedListRef.current?.focusFirst();
+    } else {
+      focusActionButton(0);
+    }
+  }
+
   if (loading) {
     return (
       <section className="container-fluid py-4" aria-busy="true">
@@ -441,39 +501,30 @@ export default function Bouquets() {
         <div className="card-body">
           <div className="row g-4 align-items-stretch">
             <div className="col-12 col-lg-5">
-              <div className="h-100 d-flex flex-column">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <h3 className="h6 mb-0">Disponíveis</h3>
-                  <span className="badge bg-secondary">{filteredAvailableItems.length}</span>
-                </div>
-                <div className="border rounded overflow-auto" style={{ maxHeight: '24rem' }}>
-                  {filteredAvailableItems.length === 0 ? (
-                    <div className="p-4 text-center text-muted">Nenhum item corresponde aos filtros.</div>
-                  ) : (
-                    <div className="list-group list-group-flush">
-                      {filteredAvailableItems.map((item) => {
-                        const isSelected = availableSelection.has(item.id);
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3${
-                              isSelected ? ' active' : ''
-                            }`}
-                            onClick={() => toggleAvailable(item.id)}
-                          >
-                            <span>
-                              <span className="fw-semibold d-block">{item.title}</span>
-                              <small className="text-muted">{getItemMetadata(item)}</small>
-                            </span>
-                            <span className="badge bg-dark text-uppercase">{item.type === 'movie' ? 'Filme' : 'Série'}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <DualList
+                ref={availableListRef}
+                headingId="dual-list-available"
+                heading="Disponíveis"
+                badgeCount={filteredAvailableItems.length}
+                items={availableListItems}
+                selection={availableSelection}
+                emptyMessage={
+                  filters.search
+                    ? 'Nenhum item corresponde aos filtros.'
+                    : 'Nenhum item disponível no catálogo para mover.'
+                }
+                onToggle={toggleAvailable}
+                orientation="left"
+                onRequestFocusSwap={(direction) => {
+                  if (direction === 'next') {
+                    if (bouquetSelection.size > 0 || selectedListItems.length > 0) {
+                      focusSelectedList();
+                    } else {
+                      focusActionButton(0);
+                    }
+                  }
+                }}
+              />
             </div>
 
             <div className="col-12 col-lg-2 d-flex flex-lg-column align-items-center justify-content-center gap-2">
@@ -483,6 +534,7 @@ export default function Bouquets() {
                 onClick={handleMoveSelectedToBouquet}
                 disabled={availableSelection.size === 0}
                 aria-label="Mover itens selecionados para o bouquet"
+                ref={setActionButtonRef(0)}
               >
                 &gt;
               </button>
@@ -492,6 +544,7 @@ export default function Bouquets() {
                 onClick={handleMoveAllToBouquet}
                 disabled={filteredAvailableItems.length === 0}
                 aria-label="Mover todos os itens filtrados para o bouquet"
+                ref={setActionButtonRef(1)}
               >
                 &gt;&gt;
               </button>
@@ -501,6 +554,7 @@ export default function Bouquets() {
                 onClick={handleRemoveSelectedFromBouquet}
                 disabled={bouquetSelection.size === 0}
                 aria-label="Remover itens selecionados do bouquet"
+                ref={setActionButtonRef(2)}
               >
                 &lt;
               </button>
@@ -510,15 +564,24 @@ export default function Bouquets() {
                 onClick={handleRemoveAllFromBouquet}
                 disabled={selectedItems.length === 0}
                 aria-label="Remover todos os itens do bouquet"
+                ref={setActionButtonRef(3)}
               >
                 &lt;&lt;
               </button>
             </div>
 
             <div className="col-12 col-lg-5">
-              <div className="h-100 d-flex flex-column">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <h3 className="h6 mb-0">No bouquet ({activeBouquet.name})</h3>
+              <DualList
+                ref={selectedListRef}
+                headingId="dual-list-selected"
+                heading={`No bouquet (${activeBouquet.name})`}
+                badgeCount={selectedItems.length}
+                items={selectedListItems}
+                selection={bouquetSelection}
+                emptyMessage="Nenhum conteúdo adicionado a este bouquet."
+                onToggle={toggleBouquetSelection}
+                orientation="right"
+                headingAdornment={
                   <div className="btn-group btn-group-sm" role="group" aria-label="Reordenar itens">
                     <button
                       type="button"
@@ -537,35 +600,15 @@ export default function Bouquets() {
                       ↓
                     </button>
                   </div>
-                </div>
-                <div className="border rounded overflow-auto" style={{ maxHeight: '24rem' }}>
-                  {selectedItems.length === 0 ? (
-                    <div className="p-4 text-center text-muted">Nenhum conteúdo adicionado a este bouquet.</div>
-                  ) : (
-                    <div className="list-group list-group-flush">
-                      {selectedItems.map((item, index) => {
-                        const isSelected = bouquetSelection.has(item.id);
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3${
-                              isSelected ? ' active' : ''
-                            }`}
-                            onClick={() => toggleBouquetSelection(item.id)}
-                          >
-                            <span>
-                              <span className="fw-semibold d-block">{index + 1}. {item.title}</span>
-                              <small className="text-muted">{getItemMetadata(item)}</small>
-                            </span>
-                            <span className="badge bg-primary">#{index + 1}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
+                }
+                onRequestFocusSwap={(direction) => {
+                  if (direction === 'previous') {
+                    focusAvailableList();
+                  } else if (direction === 'next') {
+                    focusActionButton(2);
+                  }
+                }}
+              />
             </div>
           </div>
         </div>
