@@ -278,6 +278,7 @@
 ## 4. Plano de implementação (fases)
 
 ### Fase 1 — Base do front com mocks
+- **Fase 1A concluída ✅** — Estrutura inicial do SPA configurada com roteamento, layouts (App/Auth) e provedor de tema persistente.
 - Inventariar e extrair componentes Argon (navbar, sidenav, cards, tabelas) para `AppLayout`.
 - Implementar roteamento SPA (React Router ou equivalente) para Login, Dashboard, Importação, Bouquets, Logs, Config.
 - Criar `ThemeProvider` com toggle persistido (`localStorage`).
