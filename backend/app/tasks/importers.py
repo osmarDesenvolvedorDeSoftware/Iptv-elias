@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..extensions import celery_app, db
 from ..models import Job, JobLog, JobStatus
 from ..services import tmdb
+from ..services.importers import categoria_adulta, dominio_de, limpar_nome
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ def _ensure_job(tipo: str, tenant_id: str, user_id: int, job_id: int | None) -> 
     job.ignored = 0
     job.errors = 0
     job.duration_sec = None
+    job.source_tag = job.source_tag or f"legacy:{tipo}"
+    if tipo == "filmes":
+        job.source_tag_filmes = job.source_tag_filmes or "legacy:tmdb"
     db.session.commit()
     return job
 
@@ -115,6 +119,7 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
     ignored = 0
     errors = 0
     logs_buffer: list[dict] = []
+    seen_tmdb_ids: set[int] = set()
 
     try:
         page = 1
@@ -127,10 +132,11 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
                 if processed >= _ITEMS_TO_FETCH:
                     break
                 tmdb_id = result.get("id")
-                if not tmdb_id:
+                if not tmdb_id or tmdb_id in seen_tmdb_ids:
                     ignored += 1
                     processed += 1
                     continue
+                seen_tmdb_ids.add(tmdb_id)
                 try:
                     details = _fetch_details(tipo, tmdb_id)
                 except Exception as exc:  # pragma: no cover - defensive
@@ -147,9 +153,18 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
                     )
                     continue
 
-                title = details.get("title") or details.get("name") or result.get("title") or result.get("name")
+                raw_title = (
+                    details.get("title")
+                    or details.get("name")
+                    or result.get("title")
+                    or result.get("name")
+                )
+                title = limpar_nome(raw_title)
                 year = _extract_year(details or result)
                 genres = _genre_names(tipo, details if details.get("genres") else result)
+                is_adult = categoria_adulta(title, genres)
+                homepage = details.get("homepage") or result.get("homepage")
+                domain = dominio_de(homepage)
 
                 entry = {
                     "kind": "item",
@@ -159,7 +174,11 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
                     "genres": genres,
                     "status": "inserted",
                     "type": "movie" if tipo == "filmes" else "series",
+                    "adult": is_adult,
+                    "source_tag": f"legacy:{tipo}",
                 }
+                if tipo == "filmes":
+                    entry["source_tag_filmes"] = "legacy:tmdb"
                 poster_path = details.get("poster_path") or result.get("poster_path")
                 if poster_path:
                     entry["poster"] = poster_path
@@ -172,6 +191,8 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
                 else:
                     if details.get("runtime"):
                         entry["runtime"] = details.get("runtime")
+                if domain:
+                    entry["source_domain"] = domain
 
                 logs_buffer.append(entry)
                 inserted += 1

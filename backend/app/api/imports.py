@@ -104,7 +104,7 @@ def run_import(tipo: str):
 @bp.get("/jobs/<int:job_id>/status")
 @jwt_required()
 def job_status(job_id: int):
-    tenant_id, error = _tenant_from_request()
+    tenant_id, error = tenant_from_request()
     if error:
         return error
 
@@ -154,7 +154,7 @@ def list_imports(tipo: str):
 @bp.get("/logs")
 @jwt_required()
 def list_logs():
-    tenant_id, error = _tenant_from_request()
+    tenant_id, error = tenant_from_request()
     if error:
         return error
 

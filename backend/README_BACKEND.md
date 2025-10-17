@@ -161,3 +161,10 @@ backend/
 - Multi-tenant: todas as rotas protegidas exigem o cabeçalho `X-Tenant-ID`, validado contra o tenant do usuário autenticado.
 - Jobs de importação consultam a API TMDb (filmes e séries), registram progresso real e persistem resumo por item em `job_logs`.
 - Logs estruturados em JSON e CORS habilitado conforme variável `CORS_ORIGINS`.
+
+## ✅ Fase Final – Auditoria e Compatibilidade
+
+- Scripts legados integrados (`filmes.py`, `series.py`, `padronizar_urls.py`) com fluxos convertidos para API + Celery.
+- Banco compatível com colunas antigas (`source_tag` e `source_tag_filmes`).
+- Importadores e lógica de TMDb 100% web e automatizados.
+- Execução assíncrona via Celery com logs estruturados em JSON (substitui os prints da CLI).
