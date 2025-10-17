@@ -386,10 +386,9 @@
 - Endpoint `/metrics/dashboard` consolidando KPIs (filmes, séries, importações, falhas e última importação) filtrados por tenant.
 - Serviço `metrics.get_dashboard_metrics` agregando dados com SQLAlchemy (`func.count`, `func.max`) e formatando timestamps em UTC.
 
-### Próxima fase – B2B – Health Check
-- Expor métricas de saúde (ex.: status de filas, dependências externas) para alimentar os indicadores em tempo real do dashboard.
+### Fase B2B – Health Check ✅
+- Endpoint `/health` público retornando status de banco de dados, Redis e Celery com timestamp em UTC.
+- Indicadores de saúde prontos para alimentar o dashboard e monitoramento externo.
 
-### Próximo passo – Fase B2 (Dashboard e Métricas)
-- Implementar endpoints para estatísticas em tempo real (jobs ativos, erros recentes, throughput) alimentando o dashboard.
-- Disponibilizar métricas agregadas para composição de gráficos e cards (importações por dia, tempo médio, falhas por tipo).
-- Instrumentar notificações push/webhook com base nas configurações persistidas.
+### Backend pronto – Release v1.0.0 ✅
+- Todas as fases B1A–B2B concluídas; backend considerado estável para o release final v1.0.0.

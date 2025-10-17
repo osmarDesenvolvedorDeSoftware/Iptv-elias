@@ -46,6 +46,12 @@ docker-compose exec api alembic upgrade head
 
 ## Testes manuais via `curl`
 
+Antes de autenticar, verifique o endpoint público de health check:
+
+```bash
+curl -s http://localhost:8000/health
+```
+
 1. Login para obter token:
 
 ```bash

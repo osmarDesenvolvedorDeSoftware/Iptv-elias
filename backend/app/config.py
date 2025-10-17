@@ -21,6 +21,7 @@ class Config:
         self.SQLALCHEMY_TRACK_MODIFICATIONS = False
         self.CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.REDIS_URL = redis_url
         self.CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", redis_url)
         self.CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", redis_url)
         self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
