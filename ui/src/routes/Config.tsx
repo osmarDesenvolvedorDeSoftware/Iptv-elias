@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 
+import type { ApiError } from '../data/adapters/ApiAdapter';
 import { getConfig, saveConfig } from '../data/services/configService';
 import { ConfigResponse } from '../data/types';
 import { useToast } from '../providers/ToastProvider';
@@ -100,8 +101,8 @@ export default function Configuracoes() {
       setRestartRequired(false);
       setShowErrors(false);
     } catch (loadError) {
-      console.error(loadError);
-      setError('Não foi possível carregar as configurações mockadas.');
+      const apiError = loadError as ApiError;
+      setError(apiError?.message ?? 'Não foi possível carregar as configurações.');
     } finally {
       setLoading(false);
     }
@@ -224,8 +225,8 @@ export default function Configuracoes() {
       setRestartRequired(response.requiresWorkerRestart);
       push('Configurações salvas com sucesso', 'success');
     } catch (saveError) {
-      console.error(saveError);
-      push('Erro ao salvar as configurações.', 'error');
+      const apiError = saveError as ApiError;
+      push(apiError?.message ?? 'Erro ao salvar as configurações.', 'error');
     } finally {
       setSaving(false);
     }

@@ -1,6 +1,7 @@
 import { PropsWithChildren, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import type { ApiError } from '../data/adapters/ApiAdapter';
 import { getLogDetail } from '../data/services/logService';
 
 interface LogModalProps {
@@ -48,11 +49,15 @@ export function LogModal({ logId, onClose }: LogModalProps) {
         setState({ loading: false, error: null, content: response.content });
       })
       .catch((error) => {
-        console.error(error);
+        const apiError = error as ApiError;
         if (!isMounted) {
           return;
         }
-        setState({ loading: false, error: 'Não foi possível carregar o conteúdo detalhado do log.', content: '' });
+        setState({
+          loading: false,
+          error: apiError?.message ?? 'Não foi possível carregar o conteúdo detalhado do log.',
+          content: '',
+        });
       });
 
     return () => {

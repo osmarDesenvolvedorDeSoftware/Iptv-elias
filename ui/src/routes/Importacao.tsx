@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import type { ApiError } from '../data/adapters/ApiAdapter';
+import { isMockEnabled } from '../data/adapters/ApiAdapter';
 import { ImportCard } from '../components/ImportCard';
 import { getImports, runImport } from '../data/services/importerService';
 import { ImportJobHistoryItem, ImportType } from '../data/types';
@@ -26,6 +28,7 @@ const typeToTitle: Record<ImportType, string> = {
 
 export default function Importacao() {
   const { push } = useToast();
+  const useMocks = isMockEnabled;
   const [states, setStates] = useState<Record<ImportType, ImportCardState>>({
     filmes: { ...initialState },
     series: { ...initialState },
@@ -60,9 +63,10 @@ export default function Importacao() {
       const response = await getImports(type);
       updateState(type, { items: response.items, loading: false, error: null });
     } catch (error) {
+      const apiError = error as ApiError;
       updateState(type, {
         loading: false,
-        error: 'Erro ao consultar serviço de importação mockado.',
+        error: apiError?.message ?? 'Erro ao consultar serviço de importação.',
       });
     }
   }
@@ -73,24 +77,31 @@ export default function Importacao() {
     try {
       const response = await runImport(type);
 
-      const simulatedJob: ImportJobHistoryItem = {
-        id: response.jobId,
-        startedAt: new Date().toISOString(),
-        status: response.status,
-        trigger: 'manual',
-        user: 'Operador Demo',
-        progress: response.status === 'running' ? 0 : undefined,
-      };
+      if (useMocks) {
+        const simulatedJob: ImportJobHistoryItem = {
+          id: response.jobId,
+          startedAt: new Date().toISOString(),
+          status: response.status,
+          trigger: 'manual',
+          user: 'Operador Demo',
+          progress: response.status === 'running' ? 0 : undefined,
+        };
 
-      updateState(type, (current) => ({
-        ...current,
-        actionLoading: false,
-        error: null,
-        items: [simulatedJob, ...current.items].slice(0, 10),
-      }));
+        updateState(type, (current) => ({
+          ...current,
+          actionLoading: false,
+          error: null,
+          items: [simulatedJob, ...current.items].slice(0, 10),
+        }));
+      } else {
+        await loadImports(type);
+        updateState(type, (current) => ({ ...current, actionLoading: false }));
+      }
+
       push(`Importação de ${typeToTitle[type]} enfileirada com sucesso!`, 'success');
     } catch (error) {
-      push('Não foi possível enfileirar a importação.', 'error');
+      const apiError = error as ApiError;
+      push(apiError?.message ?? 'Não foi possível enfileirar a importação.', 'error');
       updateState(type, (current) => ({ ...current, actionLoading: false }));
     }
   }

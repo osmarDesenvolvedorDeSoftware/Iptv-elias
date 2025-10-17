@@ -33,7 +33,7 @@
 - **Relatórios/Logs**: card com filtros (inputs inline) e tabela paginada; ação “ver detalhes” abre modal Bootstrap.
 - **Configurações**: cards contendo formulários com `form-group`, tooltips (`data-toggle="tooltip"`). Aviso de reinício usando `alert` dentro do card.
 
-## 2. Arquitetura front → mocks → futura API
+## 2. Arquitetura front → mocks → futura API ✅
 
 ### Camadas propostas
 1. **UI (React-like em Vanilla/Framework escolhido)**
@@ -207,6 +207,24 @@
   }
 }
 ```
+
+## ✅ Fase 2 – Integração com API real
+
+### Ambiente de Integração com API Real
+- `ApiAdapter` centraliza as chamadas HTTP usando `fetch`, lendo `VITE_API_BASE_URL` para compor os endpoints.
+- Cabeçalhos `Authorization: Bearer <token>` e `X-Tenant-ID` são enviados automaticamente a partir da sessão ativa no `AuthProvider`.
+- Em modo desenvolvimento (`import.meta.env.DEV`), o adapter realiza logs simples em `console.info`/`console.error` para depuração.
+- Erros são normalizados como `{ message, code?, details?, status? }`, garantindo mensagens amigáveis para a UI.
+
+### Alternância entre API real e mocks
+- Defina `VITE_USE_MOCK=true` no ambiente (ex.: `.env.local`) para utilizar apenas os JSONs de `MockAdapter`.
+- Com `VITE_USE_MOCK=false`, todos os services (`authService`, `importerService`, `bouquetService`, `logService`, `configService`) passam a usar o `ApiAdapter` e os endpoints HTTP reais definidos acima.
+- A flag pode ser alternada em tempo de build/execução local (ex.: `VITE_USE_MOCK=true npm run dev` para mock vs `npm run dev` em modo real com `.env.local` configurado).
+
+### Autenticação JWT e multi-tenant
+- Login (`POST /auth/login`) retorna `token`, `refreshToken`, `expiresInSec` e `user`. O `AuthProvider` persiste `accessToken`, `refreshToken`, `tenantId` e `expiresAt` em `localStorage`.
+- O contexto expõe `refresh()` e agenda renovações automáticas antes da expiração (`expiresInSec - 30s`). 401 acionam `refresh()` via `ApiAdapter`; falhas limpam a sessão e redirecionam para `/login`.
+- `logout` remove tokens e credenciais, reencaminhando o usuário para a rota pública. O tenant ativo (`user.tenantId`) alimenta o cabeçalho `X-Tenant-ID` nas requisições.
 - **POST `/config`** → `{ "ok": true, "requiresWorkerRestart": true }
 
 #### Multi-tenant context

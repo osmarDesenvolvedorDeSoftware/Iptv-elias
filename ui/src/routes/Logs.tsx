@@ -1,5 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 
+import type { ApiError } from '../data/adapters/ApiAdapter';
 import { LogModal } from '../components/LogModal';
 import { getLogs } from '../data/services/logService';
 import { LogItem, LogListResponse } from '../data/types';
@@ -109,8 +110,8 @@ export default function Logs() {
         dateTo: response.filters.dateRange?.to ?? '',
       }));
     } catch (loadError) {
-      console.error(loadError);
-      setError('Não foi possível carregar os relatórios mockados.');
+      const apiError = loadError as ApiError;
+      setError(apiError?.message ?? 'Não foi possível carregar os relatórios.');
     } finally {
       setLoading(false);
     }

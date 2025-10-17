@@ -19,6 +19,7 @@ ui/
     │   └── ToastContainer.tsx
     ├── data/
     │   ├── adapters/
+    │   │   ├── ApiAdapter.ts
     │   │   └── MockAdapter.ts
     │   ├── mocks/
     │   │   ├── auth.login.json
@@ -59,8 +60,9 @@ ui/
 - `components/ImportCard.tsx`: card reutilizável para exibir status e histórico de importações.
 - `components/LogModal.tsx`: modal Bootstrap sem dependências externas para exibir o texto completo de um log.
 - `components/ToastContainer.tsx`: container fixo para alertas disparados pelas ações simuladas.
+- `ApiAdapter.ts`: cliente HTTP tipado com `fetch`, headers automáticos (`Authorization`, `X-Tenant-ID`), refresh de token e logs em modo dev.
 - `MockAdapter.ts`: carrega fixtures JSON com delay aleatório para simular chamadas HTTP.
-- `services/`: funções assíncronas (auth, importador, bouquets, logs, config) que encapsulam as leituras dos mocks.
+- `services/`: funções assíncronas (auth, importador, bouquets, logs, config) que alternam entre mocks e API real via `VITE_USE_MOCK`.
 - `types.ts`: contratos TypeScript compartilhados pelas camadas de dados.
 - `AppLayout.tsx` / `AuthLayout.tsx`: cascas principais para rotas autenticadas e públicas.
 - `providers/`: contextos compartilhados (`ThemeProvider`, `AuthProvider`, `ToastProvider`).
@@ -73,15 +75,15 @@ ui/
 
 ## 🎬 Páginas Login e Importação
 
-- **/login** — utiliza o `authService.login()` para carregar o usuário mockado (`operador@tenant.com`) e valida a senha `admin123`. Durante o envio do formulário, o botão exibe spinner e fica desabilitado; credenciais incorretas rendem um `alert` vermelho. Ao sucesso, o token falso é salvo no `AuthProvider` e o usuário é redirecionado para `/importacao`. O layout fullscreen mantém o botão de alternância de tema funcionando.
-- **/importacao** — consome `importerService.getImports('filmes' | 'series')` para preencher dois cards (Filmes e Séries) lado a lado. Cada card apresenta badge de status, barra de progresso quando um job está em execução, tabela com os cinco últimos históricos e botões de ação. “Rodar agora” chama `importerService.runImport(tipo)`, cria um job simulado e exibe toast de sucesso; “Ver log” e “Configurar” disparam toasts informativos. Estados de carregamento, erro e ausência de dados são tratados com spinners, alerts e mensagens amigáveis.
+- **/login** — chama `authService.login()` com e-mail/senha reais (modo API) ou credenciais mock (`operador@tenant.com`/`admin123`). Tokens (`access`, `refresh`) e `tenantId` são persistidos pelo `AuthProvider`, que agenda refresh automático e adiciona os cabeçalhos necessários para as rotas protegidas.
+- **/importacao** — consome `importerService.getImports('filmes' | 'series')` para preencher dois cards (Filmes e Séries) lado a lado. Cada card apresenta badge de status, barra de progresso quando um job está em execução, tabela com os cinco últimos históricos e botões de ação. “Rodar agora” chama `importerService.runImport(tipo)`, usa mocks locais ou dispara o endpoint real (`/importacoes/{tipo}/run`) e exibe toast de sucesso; estados de carregamento, erro e ausência de dados seguem tratados com spinners/alerts.
 - **Toasts globais** — o `ToastProvider` combinado ao `ToastContainer` (posicionado no `AppLayout`) exibe feedback para as ações mockadas, harmonizando com o tema claro/escuro.
 
 ## 📋 Bouquets, Logs e Configurações
 
-- **/bouquets** — consome `bouquetService.getBouquets()` para montar uma dual-list com filtros de busca e tipo. Movimentações individuais, totais e reordenação simples mantêm o estado local até o mock `saveBouquet()` ser chamado, exibindo toast global de sucesso.
-- **/logs** — usa `logService.getLogs()` para popular filtros e tabela responsiva. O botão “Ver detalhes” abre `LogModal`, que consulta `logService.getLogDetail(id)` sob demanda e trata estados de loading, erro e vazio.
-- **/configuracoes** — carrega `configService.getConfig()` e distribui os campos em abas (Importador, TMDb, Notificações). A validação básica destaca campos obrigatórios e, ao salvar, `saveConfig()` pode sinalizar a necessidade de reiniciar workers via `alert-warning` persistente.
+- **/bouquets** — consome `bouquetService.getBouquets()` (mock ou API real) para montar a dual-list. Movimentações individuais, totais e reordenação simples mantêm o estado local até `saveBouquet()` confirmar no backend e disparar toast global de sucesso.
+- **/logs** — usa `logService.getLogs()` para popular filtros e tabela responsiva. O botão “Ver detalhes” abre `LogModal`, que consulta `logService.getLogDetail(id)` sob demanda e normaliza erros retornados pela API.
+- **/configuracoes** — carrega `configService.getConfig()` e distribui os campos em abas (Importador, TMDb, Notificações). A validação destaca campos obrigatórios e `saveConfig()` comunica o backend, sinalizando (quando necessário) o reinício de workers.
 - **Feedbacks globais** — o `ToastProvider` continua responsável pelos toasts de ações, garantindo consistência visual entre tema claro/escuro e páginas.
 
 ## 📦 Camada de Mocks e Serviços
@@ -106,11 +108,31 @@ getImports('filmes').then((response) => {
 
 Consulte `docs/iptv-ui-plan.md` para o plano completo de implementação das fases subsequentes (componentes de página, integração com API real, testes, etc.).
 
+## 🔐 Integração com API Real
+
+1. **Configure o ambiente**
+   - Copie `ui/.env.example` para `ui/.env.local` e ajuste os valores:
+     ```ini
+     VITE_API_BASE_URL=https://api.suaempresa.com
+     VITE_USE_MOCK=false
+     ```
+   - `VITE_USE_MOCK=true` força o uso dos JSONs em `ui/src/data/mocks/` sem tocar a API real.
+
+2. **Fluxo de autenticação JWT**
+   - `authService.login(email, password)` envia `POST /auth/login` e retorna `{ token, refreshToken, expiresInSec, user }`.
+   - O `AuthProvider` persiste os tokens em `localStorage`, injeta os headers `Authorization` e `X-Tenant-ID` e expõe `refresh()` para renovações automáticas (30s antes da expiração ou ao receber 401).
+   - `logout` limpa os tokens e força o redirecionamento para `/login`.
+
+3. **Alternar entre modos mock vs. real**
+   - Modo mock: `VITE_USE_MOCK=true npm run dev` (ou `npm run dev -- --mock`, garantindo que a flag defina `VITE_USE_MOCK=true`).
+   - Modo real: `npm run dev` com `.env.local` apontando para o backend HTTP.
+   - Em produção, defina `VITE_API_BASE_URL` e mantenha `VITE_USE_MOCK=false` para que todos os services utilizem o `ApiAdapter`.
+
 ## Progresso das fases
 
 - [x] Fase 1A – Estrutura base do SPA (layouts, roteamento, tema).
 - [x] Fase 1B – Camada de Mocks e Serviços.
 - [x] Fase 1C – Páginas Login e Importação.
 - [x] Fase 1D – Bouquets, Logs e Configurações com mocks.
-- [ ] Fase 2 – Integração API real.
+- [x] Fase 2 – Integração API real.
 - [ ] Fase 3 – Hardening.
