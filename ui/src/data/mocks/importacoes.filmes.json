@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "id": 123,
+      "startedAt": "2025-10-17T12:30:00Z",
+      "finishedAt": "2025-10-17T12:33:05Z",
+      "status": "finished",
+      "inserted": 120,
+      "updated": 35,
+      "ignored": 10,
+      "errors": 2,
+      "durationSec": 185,
+      "trigger": "manual",
+      "user": "admin@tenant.com"
+    },
+    {
+      "id": 124,
+      "startedAt": "2025-10-17T13:00:00Z",
+      "status": "running",
+      "progress": 0.42,
+      "etaSec": 210,
+      "trigger": "schedule",
+      "user": "scheduler"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 83
+}

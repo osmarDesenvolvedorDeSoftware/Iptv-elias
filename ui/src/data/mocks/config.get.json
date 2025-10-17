@@ -1,0 +1,18 @@
+{
+  "tmdb": {
+    "apiKey": "***",
+    "language": "pt-BR",
+    "region": "BR"
+  },
+  "importer": {
+    "movieDelayMs": 250,
+    "seriesDelayMs": 500,
+    "maxParallelJobs": 2,
+    "defaultCategories": ["Ação", "Drama"],
+    "useImageCache": true
+  },
+  "notifications": {
+    "emailAlerts": true,
+    "webhookUrl": null
+  }
+}

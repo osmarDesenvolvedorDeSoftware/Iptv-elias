@@ -279,12 +279,17 @@
 
 ### Fase 1 — Base do front com mocks
 - **Fase 1A concluída ✅** — Estrutura inicial do SPA configurada com roteamento, layouts (App/Auth) e provedor de tema persistente.
-- Inventariar e extrair componentes Argon (navbar, sidenav, cards, tabelas) para `AppLayout`.
-- Implementar roteamento SPA (React Router ou equivalente) para Login, Dashboard, Importação, Bouquets, Logs, Config.
-- Criar `ThemeProvider` com toggle persistido (`localStorage`).
-- Criar `MockAdapter` com fixtures para autenticação, importações, bouquets, logs, configurações; conectar páginas à camada de dados mock.
-- Construir página Importação com dois cards independentes (Filmes, Séries) respeitando regras.
-- Implementar estados básicos (loading spinner, vazio, erro) para cada bloco.
+- **Fase 1B concluída ✅** — Camada de dados mock implementada com `MockAdapter` (delay de 200–600 ms), serviços tipados (auth, importer, bouquets, logs, config) e fixtures JSON seguindo os contratos.
+- **Pendências para a Fase 1C (páginas Importação e Login):**
+  - Inventariar e extrair componentes Argon (navbar, sidenav, cards, tabelas) para `AppLayout`.
+  - Implementar roteamento SPA (React Router ou equivalente) para Login, Dashboard, Importação, Bouquets, Logs, Config.
+  - Construir página Importação com dois cards independentes (Filmes, Séries) respeitando regras.
+  - Implementar estados básicos (loading spinner, vazio, erro) para cada bloco.
+
+### Status atual do Frontend
+- ✅ Fase 1A – Estrutura base (layouts, tema e roteamento inicial).
+- ✅ Fase 1B – Camada de Mocks e Serviços (MockAdapter, services, fixtures JSON).
+- 🔜 Próxima: Fase 1C – páginas Importação e Login.
 
 ### Fase 2 — Bouquets
 - Desenvolver componente DualList acessível (teclado, ARIA) com busca e filtros.

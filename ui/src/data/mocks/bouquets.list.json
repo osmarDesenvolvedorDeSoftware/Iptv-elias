@@ -1,0 +1,27 @@
+{
+  "bouquets": [
+    { "id": 1, "name": "Ação" },
+    { "id": 2, "name": "Favoritos" }
+  ],
+  "catalog": [
+    {
+      "id": "f_101",
+      "type": "movie",
+      "title": "Blade Runner 2049",
+      "year": 2017,
+      "genres": ["Sci-Fi"],
+      "poster": "/media/posters/f_101.jpg"
+    },
+    {
+      "id": "s_550",
+      "type": "series",
+      "title": "The Witcher",
+      "seasons": 3,
+      "status": "returning"
+    }
+  ],
+  "selected": {
+    "1": ["f_101"],
+    "2": []
+  }
+}
