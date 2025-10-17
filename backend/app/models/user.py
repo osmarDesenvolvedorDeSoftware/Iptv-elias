@@ -1,0 +1,20 @@
+from datetime import datetime
+
+from ..extensions import db
+
+
+class User(db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.String(64), db.ForeignKey("tenants.id"), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(50), nullable=False, default="admin")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    jobs = db.relationship("Job", backref="user", lazy=True)
+
+    def __repr__(self) -> str:
+        return f"<User {self.email}>"
