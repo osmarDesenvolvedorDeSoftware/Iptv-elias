@@ -4,6 +4,7 @@ from .job import Job
 from .job_log import JobLog
 from .tenant import Tenant
 from .user import User
+from .stream import Stream, StreamEpisode, StreamSeries
 
 __all__ = [
     "Bouquet",
@@ -13,4 +14,7 @@ __all__ = [
     "JobLog",
     "Tenant",
     "User",
+    "Stream",
+    "StreamEpisode",
+    "StreamSeries",
 ]

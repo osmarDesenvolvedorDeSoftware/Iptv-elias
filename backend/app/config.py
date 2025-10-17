@@ -41,6 +41,12 @@ class Config:
         self.TMDB_LANGUAGE = os.getenv("TMDB_LANGUAGE", "pt-BR")
         self.TMDB_REGION = os.getenv("TMDB_REGION", "BR")
         self.DEFAULT_TENANT_ID = os.getenv("DEFAULT_TENANT_ID", "tenant-demo")
+        self.LEGACY_MOVIES_M3U = os.getenv(
+            "LEGACY_MOVIES_M3U", str(BASE_DIR / "app" / "data" / "samples" / "movies.m3u")
+        )
+        self.LEGACY_SERIES_M3U = os.getenv(
+            "LEGACY_SERIES_M3U", str(BASE_DIR / "app" / "data" / "samples" / "series.m3u")
+        )
 
     def __call__(self) -> "Config":
         return self

@@ -1,0 +1,11 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="" group-title="Series Fantasia",The Witcher S01E01 - The End's Beginning
+http://series.example.com:8081/the_witcher_s01e01.mkv
+#EXTINF:-1 tvg-id="" group-title="Series Fantasia",The Witcher S01E02 - Four Marks
+http://series.example.com:8081/the_witcher_s01e02.mkv
+#EXTINF:-1 tvg-id="" group-title="Series Fantasia",The Witcher S02E01 - A Grain of Truth
+http://cdn.example.com/the_witcher_s02e01.mp4
+#EXTINF:-1 tvg-id="" group-title="Series Drama",Dark S01E01 - Secrets
+http://series.example.com:8081/dark_s01e01.mp4
+#EXTINF:-1 tvg-id="" group-title="Adult Series",Adult Show S01E01 - Start
+http://adult.example.net:9090/adult_show_s01e01.mp4
