@@ -207,6 +207,13 @@
   }
 }
 ```
+-
+## ✅ Fase Final – Auditoria e Compatibilidade
+
+- Scripts legados integrados (`filmes.py`, `series.py`, `padronizar_urls.py`).
+- Banco compatível com colunas antigas (`source_tag` e `source_tag_filmes`).
+- Importadores e lógica de TMDb 100% web e automatizados.
+- Execução assíncrona via Celery com logs estruturados em JSON, substituindo os prints da CLI.
 
 ## ✅ Fase 2 – Integração com API real
 

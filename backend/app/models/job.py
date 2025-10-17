@@ -21,6 +21,8 @@ class Job(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     type = db.Column(db.String(50), nullable=False)
     status = db.Column(db.String(20), nullable=False, default=JobStatus.QUEUED)
+    source_tag = db.Column(db.String(255), nullable=True)
+    source_tag_filmes = db.Column(db.String(255), nullable=True)
     progress = db.Column(db.Float, nullable=False, default=0.0)
     eta_sec = db.Column(db.Integer, nullable=True)
     started_at = db.Column(db.DateTime, nullable=True)
@@ -58,6 +60,10 @@ class Job(db.Model):
             payload["startedAt"] = self.started_at.isoformat() + "Z"
         if self.finished_at:
             payload["finishedAt"] = self.finished_at.isoformat() + "Z"
+        if self.source_tag:
+            payload["sourceTag"] = self.source_tag
+        if self.source_tag_filmes:
+            payload["sourceTagFilmes"] = self.source_tag_filmes
         return payload
 
     def __repr__(self) -> str:

@@ -33,7 +33,17 @@ def _normalize_poster_path(path: str | None) -> str | None:
 
 
 def _metadata_from_catalog(item: dict[str, Any]) -> dict[str, Any]:
-    allowed_keys = {"year", "genres", "poster", "seasons", "status", "runtime", "overview"}
+    allowed_keys = {
+        "year",
+        "genres",
+        "poster",
+        "seasons",
+        "status",
+        "runtime",
+        "overview",
+        "adult",
+        "source_domain",
+    }
     metadata = {key: item.get(key) for key in allowed_keys if item.get(key) is not None}
     return metadata
 
@@ -97,6 +107,9 @@ def _load_recent_imports(tenant_id: str) -> OrderedDict[str, dict[str, Any]]:
             "title": title,
             "year": payload.get("year"),
             "genres": payload.get("genres") or [],
+            "adult": payload.get("adult", False),
+            "source_tag": payload.get("source_tag"),
+            "source_tag_filmes": payload.get("source_tag_filmes"),
         }
         if content_type == "series":
             item["seasons"] = payload.get("seasons") or 0
@@ -116,6 +129,9 @@ def _load_recent_imports(tenant_id: str) -> OrderedDict[str, dict[str, Any]]:
         poster = payload.get("poster") if content_type == "series" else None
         if content_type == "series":
             item["poster"] = _normalize_poster_path(poster) or ""
+        source_domain = payload.get("source_domain")
+        if source_domain:
+            item["source_domain"] = source_domain
         catalog[content_id] = item
     return catalog
 
@@ -203,6 +219,8 @@ def update_bouquet_items(tenant_id: str, bouquet_id: int, content_ids: list[str]
             content_id=content_id,
             type=source.get("type", "movie"),
             title=source.get("title") or content_id,
+            source_tag=source.get("source_tag"),
+            source_tag_filmes=source.get("source_tag_filmes"),
             metadata_json=metadata,
         )
         to_insert.append(item)

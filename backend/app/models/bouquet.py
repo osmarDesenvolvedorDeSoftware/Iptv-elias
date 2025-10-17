@@ -41,6 +41,8 @@ class BouquetItem(db.Model):
     content_id = db.Column(db.String(128), nullable=False)
     type = db.Column(db.String(32), nullable=False)
     title = db.Column(db.String(255), nullable=False)
+    source_tag = db.Column(db.String(255), nullable=True)
+    source_tag_filmes = db.Column(db.String(255), nullable=True)
     metadata_json = db.Column("metadata", db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -55,6 +57,10 @@ class BouquetItem(db.Model):
             "type": self.type,
             "title": self.title,
         }
+        if self.source_tag:
+            payload["source_tag"] = self.source_tag
+        if self.source_tag_filmes:
+            payload["source_tag_filmes"] = self.source_tag_filmes
         if isinstance(metadata, dict):
             payload.update(metadata)
         return payload
