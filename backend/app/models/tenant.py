@@ -12,6 +12,8 @@ class Tenant(db.Model):
 
     users = db.relationship("User", backref="tenant", lazy=True)
     jobs = db.relationship("Job", backref="tenant", lazy=True)
+    bouquets = db.relationship("Bouquet", backref="tenant", lazy=True)
+    configuration = db.relationship("Configuration", backref="tenant", uselist=False, lazy=True)
 
     def __repr__(self) -> str:
         return f"<Tenant {self.id}>"

@@ -1,4 +1,4 @@
-# Backend IPTV - Fase B1A
+# Backend IPTV - Fase B1C
 
 Backend mínimo viável em Flask para atender ao front IPTV.
 
@@ -11,6 +11,7 @@ Backend mínimo viável em Flask para atender ao front IPTV.
 1. Copie `.env.example` para `.env` na pasta `backend/` e ajuste os valores se necessário.
    - Cadastre uma chave da API [TMDb](https://www.themoviedb.org/) e informe em `TMDB_API_KEY`.
    - Ajuste `TMDB_LANGUAGE`/`TMDB_REGION` caso utilize outra localidade.
+   - `DEFAULT_TENANT_ID` define o tenant padrão usado pelos ambientes de desenvolvimento e testes (`tenant-demo`).
 2. Execute as migrações (incluindo a expansão de métricas dos jobs) com Alembic após subir os containers.
 
 ```bash
@@ -87,6 +88,40 @@ curl -s http://localhost:8000/importacoes/filmes \
 curl -s "http://localhost:8000/logs?type=filmes&status=finished" \
   -H "Authorization: Bearer <token>" \
   -H "X-Tenant-ID: tenant-demo"
+```
+
+5. Bouquets persistidos e catálogo recente:
+
+```bash
+curl -s http://localhost:8000/bouquets \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Tenant-ID: tenant-demo"
+
+curl -s -X POST http://localhost:8000/bouquets/1 \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Tenant-ID: tenant-demo" \
+  -d '{"items":["f_101","s_550"]}'
+
+curl -s -X POST http://localhost:8000/bouquets \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Tenant-ID: tenant-demo" \
+  -d '{"name":"Favoritos"}'
+```
+
+6. Configurações por tenant com merge de defaults:
+
+```bash
+curl -s http://localhost:8000/config \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Tenant-ID: tenant-demo"
+
+curl -s -X POST http://localhost:8000/config \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Tenant-ID: tenant-demo" \
+  -d '{"importer":{"maxParallelJobs":4}}'
 ```
 
 ## Estrutura de pastas

@@ -151,16 +151,29 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
                 year = _extract_year(details or result)
                 genres = _genre_names(tipo, details if details.get("genres") else result)
 
-                logs_buffer.append(
-                    {
-                        "kind": "item",
-                        "tmdb_id": tmdb_id,
-                        "title": title,
-                        "year": year,
-                        "genres": genres,
-                        "status": "inserted",
-                    }
-                )
+                entry = {
+                    "kind": "item",
+                    "tmdb_id": tmdb_id,
+                    "title": title,
+                    "year": year,
+                    "genres": genres,
+                    "status": "inserted",
+                    "type": "movie" if tipo == "filmes" else "series",
+                }
+                poster_path = details.get("poster_path") or result.get("poster_path")
+                if poster_path:
+                    entry["poster"] = poster_path
+                overview = details.get("overview") or result.get("overview")
+                if overview:
+                    entry["overview"] = overview
+                if tipo == "series":
+                    entry["seasons"] = details.get("number_of_seasons") or result.get("number_of_seasons")
+                    entry["series_status"] = details.get("status") or result.get("status")
+                else:
+                    if details.get("runtime"):
+                        entry["runtime"] = details.get("runtime")
+
+                logs_buffer.append(entry)
                 inserted += 1
                 processed += 1
 

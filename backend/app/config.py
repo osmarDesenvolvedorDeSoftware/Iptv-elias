@@ -39,6 +39,7 @@ class Config:
         self.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
         self.TMDB_LANGUAGE = os.getenv("TMDB_LANGUAGE", "pt-BR")
         self.TMDB_REGION = os.getenv("TMDB_REGION", "BR")
+        self.DEFAULT_TENANT_ID = os.getenv("DEFAULT_TENANT_ID", "tenant-demo")
 
     def __call__(self) -> "Config":
         return self

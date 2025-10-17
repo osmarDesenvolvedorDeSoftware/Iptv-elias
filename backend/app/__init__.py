@@ -34,11 +34,15 @@ def configure_logging(app: Flask) -> None:
 
 def register_blueprints(app: Flask) -> None:
     from .api.auth import bp as auth_bp
+    from .api.bouquets import bp as bouquets_bp
+    from .api.config import bp as config_bp
     from .api.health import bp as health_bp
     from .api.imports import bp as imports_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
+    app.register_blueprint(config_bp)
+    app.register_blueprint(bouquets_bp)
     app.register_blueprint(imports_bp)
 
 

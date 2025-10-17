@@ -375,5 +375,14 @@
 - Nova migração `0002_job_metrics` adicionando colunas e índice composto para consultas por tenant/tipo.
 - Documentação atualizada com comando Celery e instruções de configuração.
 
-### Próximo passo – Fase B1C
-- Persistir bouquets e configurações (API real para `/bouquets`, `/config`) com vínculos ao catálogo importado.
+### Fase B1C – Bouquets e Configurações ✅
+- Migração `0003_bouquets_and_config` adicionando tabelas `bouquets`, `bouquet_items` e `configurations` com vínculo por tenant.
+- Serviço de bouquets entregando catálogo real (últimos itens importados) com cache e seleção persistente por bouquet.
+- Serviço de configuração consolidando defaults (`tmdb`, `importer`, `notifications`) e salvando overrides por tenant.
+- Endpoints `/bouquets` e `/config` com autenticação JWT + `X-Tenant-ID`, alinhados ao contrato da SPA.
+- Documentação e `.env.example` atualizados para refletir a persistência real do backend.
+
+### Próximo passo – Fase B2 (Dashboard e Métricas)
+- Implementar endpoints para estatísticas em tempo real (jobs ativos, erros recentes, throughput) alimentando o dashboard.
+- Disponibilizar métricas agregadas para composição de gráficos e cards (importações por dia, tempo médio, falhas por tipo).
+- Instrumentar notificações push/webhook com base nas configurações persistidas.
