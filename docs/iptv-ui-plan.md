@@ -382,6 +382,13 @@
 - Endpoints `/bouquets` e `/config` com autenticação JWT + `X-Tenant-ID`, alinhados ao contrato da SPA.
 - Documentação e `.env.example` atualizados para refletir a persistência real do backend.
 
+### Fase B2A – Dashboard & Métricas ✅
+- Endpoint `/metrics/dashboard` consolidando KPIs (filmes, séries, importações, falhas e última importação) filtrados por tenant.
+- Serviço `metrics.get_dashboard_metrics` agregando dados com SQLAlchemy (`func.count`, `func.max`) e formatando timestamps em UTC.
+
+### Próxima fase – B2B – Health Check
+- Expor métricas de saúde (ex.: status de filas, dependências externas) para alimentar os indicadores em tempo real do dashboard.
+
 ### Próximo passo – Fase B2 (Dashboard e Métricas)
 - Implementar endpoints para estatísticas em tempo real (jobs ativos, erros recentes, throughput) alimentando o dashboard.
 - Disponibilizar métricas agregadas para composição de gráficos e cards (importações por dia, tempo médio, falhas por tipo).
