@@ -1,12 +1,12 @@
 import { ComponentType, LazyExoticComponent, lazy } from 'react';
 
 const DashboardPage = lazy(() => import('./routes/DashboardPlaceholder'));
-const ImportacaoPage = lazy(() => import('./routes/ImportacaoPlaceholder'));
+const ImportacaoPage = lazy(() => import('./routes/Importacao'));
 const BouquetsPage = lazy(() => import('./routes/BouquetsPlaceholder'));
 const RelatoriosPage = lazy(() => import('./routes/RelatoriosPlaceholder'));
 const ConfiguracoesPage = lazy(() => import('./routes/ConfiguracoesPlaceholder'));
 
-const LoginPage = lazy(() => import('./routes/LoginPlaceholder'));
+const LoginPage = lazy(() => import('./routes/Login'));
 
 export type RouteConfig = {
   path: string;
