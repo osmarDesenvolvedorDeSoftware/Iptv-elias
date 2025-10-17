@@ -368,5 +368,12 @@
 - Fila Celery + Redis com endpoints `/importacoes/{tipo}/run` e `/jobs/{id}/status` retornando progresso dummy.
 - Migração inicial Alembic com tabelas `tenants`, `users`, `jobs`, `job_logs` e seed de tenant demo.
 
-### Próximo passo – Fase B1B
-- Implementar lógica real dos importadores (TMDb, listas etc.) e persistência detalhada.
+### Fase B1B – Importadores Reais ✅
+- Integração com TMDb (filmes e séries) respeitando `TMDB_LANGUAGE`/`TMDB_REGION` e chave configurável por `.env`.
+- Jobs Celery criados dinamicamente, registrando métricas completas (`inserted`, `updated`, `ignored`, `errors`, `durationSec`).
+- Logs persistidos em JSON por item e resumo final disponível via `/importacoes/{tipo}` e `/logs` com filtros.
+- Nova migração `0002_job_metrics` adicionando colunas e índice composto para consultas por tenant/tipo.
+- Documentação atualizada com comando Celery e instruções de configuração.
+
+### Próximo passo – Fase B1C
+- Persistir bouquets e configurações (API real para `/bouquets`, `/config`) com vínculos ao catálogo importado.

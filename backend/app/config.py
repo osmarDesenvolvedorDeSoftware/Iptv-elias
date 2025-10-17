@@ -36,6 +36,9 @@ class Config:
             os.getenv("JWT_REFRESH_TOKEN_EXPIRES_SECONDS", int(self.JWT_REFRESH_TOKEN_EXPIRES.total_seconds()))
         )
         self.CELERY_TASK_DEFAULT_QUEUE = "default"
+        self.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+        self.TMDB_LANGUAGE = os.getenv("TMDB_LANGUAGE", "pt-BR")
+        self.TMDB_REGION = os.getenv("TMDB_REGION", "BR")
 
     def __call__(self) -> "Config":
         return self

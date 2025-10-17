@@ -16,5 +16,5 @@ def enqueue_import(tipo: str, tenant_id: str, user_id: int) -> Job:
 
     from ..tasks.importers import run_import
 
-    run_import.delay(job_id=job.id, tipo=tipo, tenant_id=tenant_id, user_id=user_id)
+    run_import.delay(tipo=tipo, tenant_id=tenant_id, user_id=user_id, job_id=job.id)
     return job
