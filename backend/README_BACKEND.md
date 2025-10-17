@@ -168,3 +168,24 @@ backend/
 - Banco compatível com colunas antigas (`source_tag` e `source_tag_filmes`).
 - Importadores e lógica de TMDb 100% web e automatizados.
 - Execução assíncrona via Celery com logs estruturados em JSON (substitui os prints da CLI).
+
+## 📌 Auditoria de Paridade Legado x Novo (2024)
+
+- **Importação de Filmes**: lê playlists M3U/Xtream, deduplica por URL completa, normaliza `stream_source` como lista JSON e preenche `source_tag_filmes` com domínio:porta. Metadados TMDb são persistidos em `streams.movie_properties` e o catálogo/bouquet de filmes é atualizado automaticamente.
+- **Importação de Séries**: identifica a série por `(title_base, source_tag)`, reaproveitando registros existentes ou promovendo tags vazias, grava episódios em `streams`/`streams_episodes` e mantém `streams_series.source_tag` derivado do domínio dominante. Bouquets e flags de conteúdo adulto seguem a heurística legada.
+- **Padronização de URLs**: novos campos `streams.primary_url`, `streams.source_tag_filmes` e `streams_series.source_tag` garantem a deduplicação por URL e a disponibilidade dos metadados legados; normalização de listas e containers ocorre durante a importação.
+- **Logs e Observabilidade**: `job_logs` recebem eventos item a item com origem (arquivo/API), domínio, status (`inserted`, `duplicate`, `ignored`, `error`) e marcadores de conteúdo adulto, exibidos diretamente na tela de Logs.
+- **Bouquets e Catálogo**: inserções atualizam `BouquetItem` com IDs `f_<stream_id>` e `s_<series_id>`, preservando catálogos e bouquets “Filmes”, “Séries” e “Adultos”.
+
+### Ajustes desta auditoria
+
+- Criação das tabelas `streams`, `streams_series` e `streams_episodes` com migração `0005_streams_and_series`, além dos modelos ORM correspondentes.
+- Reescrita das tarefas Celery para aplicar todas as regras de deduplicação, enriquecimento TMDb, preenchimento de tags e roteamento automático para bouquets/Adultos.
+- Substituição do catálogo baseado em logs por consultas diretas aos novos cadastros, mantendo o cache e as seleções existentes.
+- Inclusão de playlists M3U de exemplo (`backend/app/data/samples/*.m3u`) e variáveis `LEGACY_MOVIES_M3U`/`LEGACY_SERIES_M3U` para apontar arquivos reais.
+
+### Como visualizar no front
+
+- **Importação**: acione `/importacoes/filmes` ou `/importacoes/series` pela tela *Importação* do SPA para acompanhar progresso, deduplicação e logs JSON.
+- **Bouquets**: consulte a tela *Bouquets* (endpoint `/bouquets`) para verificar o catálogo unificado, inclusive marcação de adulto e tags de origem preenchidas automaticamente.
+- **Logs detalhados**: utilize a tela *Logs* (endpoints `/logs` e `/logs/<id>`) para inspecionar os registros ricos por item, com domínio e status.

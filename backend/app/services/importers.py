@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from typing import Iterable, Sequence
 from urllib.parse import urlparse
 
 _ADULT_KEYWORDS = {
@@ -16,7 +16,7 @@ _ADULT_KEYWORDS = {
     "nsfw",
 }
 
-_EXTENSION_PATTERN = re.compile(r"\.(mkv|mp4|avi|mov|wmv|m3u8)$", re.IGNORECASE)
+_EXTENSION_PATTERN = re.compile(r"\.(mkv|mp4|avi|mov|wmv|m3u8|ts)$", re.IGNORECASE)
 _CLEANUP_BRACKETS = re.compile(r"\s*[\[\(][^\]\)]*[\)\]]\s*")
 _MULTISPACE_PATTERN = re.compile(r"\s{2,}")
 _SYMBOLS_PATTERN = re.compile(r"[\-_]+")
@@ -57,4 +57,52 @@ def dominio_de(url: str | None) -> str | None:
     return hostname.lower() or None
 
 
-__all__ = ["categoria_adulta", "limpar_nome", "dominio_de"]
+def source_tag_from_url(url: str | None) -> str | None:
+    """Retorna a tag de origem no formato dominio[:porta]."""
+
+    if not url:
+        return None
+    parsed = urlparse(url if "://" in url else f"http://{url}")
+    if not parsed.hostname:
+        return None
+    hostname = parsed.hostname.lower()
+    if parsed.port:
+        return f"{hostname}:{parsed.port}"
+    return hostname
+
+
+def normalize_stream_source(urls: Sequence[str | None]) -> list[str]:
+    """Garante compatibilidade do campo stream_source do legado."""
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for url in urls:
+        if not url:
+            continue
+        cleaned = url.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
+
+
+def target_container_from_url(url: str | None) -> str | None:
+    """Detecta o container baseado na extensão do arquivo."""
+
+    if not url:
+        return None
+    match = _EXTENSION_PATTERN.search(url)
+    if not match:
+        return None
+    return match.group(1).lower()
+
+
+__all__ = [
+    "categoria_adulta",
+    "limpar_nome",
+    "dominio_de",
+    "source_tag_from_url",
+    "normalize_stream_source",
+    "target_container_from_url",
+]

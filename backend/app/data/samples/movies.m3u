@@ -1,0 +1,9 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="" group-title="Filmes Ação",Blade Runner 2049
+http://vod.example.com:8080/movies/blade_runner_2049.mp4
+#EXTINF:-1 tvg-id="" group-title="Filmes Drama",Call Me by Your Name
+http://vod.example.com:8080/movies/call_me_by_your_name.ts
+#EXTINF:-1 tvg-id="" group-title="Adult XXX",Example Adult Movie
+http://adult.example.net:9090/movies/example_adult_movie.mp4
+#EXTINF:-1 tvg-id="" group-title="Filmes Ação",Blade Runner 2049 (Duplicate)
+http://vod.example.com:8080/movies/blade_runner_2049.mp4

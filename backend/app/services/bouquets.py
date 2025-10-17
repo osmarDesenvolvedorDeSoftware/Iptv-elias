@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from collections import OrderedDict
 from datetime import datetime
@@ -9,21 +8,11 @@ from typing import Any, Iterable
 from sqlalchemy.orm import joinedload
 
 from ..extensions import db
-from ..models import Bouquet, BouquetItem, Job, JobLog
+from ..models import Bouquet, BouquetItem, Stream, StreamSeries
 
 _CATALOG_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _CACHE_TTL_SECONDS = 300
 _TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
-_JOB_TYPE_TO_CONTENT_TYPE = {
-    "filmes": "movie",
-    "series": "series",
-}
-_CONTENT_PREFIX = {
-    "movie": "f_",
-    "series": "s_",
-}
-
-
 def _normalize_poster_path(path: str | None) -> str | None:
     if not path:
         return None
@@ -52,109 +41,77 @@ def list_bouquets(tenant_id: str) -> list[Bouquet]:
     return Bouquet.query.filter_by(tenant_id=tenant_id).order_by(Bouquet.created_at.asc()).all()
 
 
-def _load_items_for_catalog(items: Iterable[BouquetItem]) -> OrderedDict[str, dict[str, Any]]:
+def _movie_catalog_items(tenant_id: str) -> OrderedDict[str, dict[str, Any]]:
     catalog: OrderedDict[str, dict[str, Any]] = OrderedDict()
-    for item in items:
-        payload = item.as_catalog_item()
-        payload["poster"] = _normalize_poster_path(payload.get("poster")) or ""
-        if payload.get("type") == "series":
-            payload.setdefault("seasons", 0)
-            payload.setdefault("status", "indefinido")
+    movies = (
+        Stream.query.filter_by(tenant_id=tenant_id, type=2)
+        .order_by(Stream.created_at.desc())
+        .all()
+    )
+    for movie in movies:
+        payload = movie.as_catalog_item()
+        payload["type"] = "movie"
+        properties = movie.movie_properties or {}
+        payload.setdefault("genres", properties.get("genres") or [])
+        payload.setdefault("year", properties.get("year"))
+        poster = payload.get("poster") or properties.get("poster")
+        payload["poster"] = _normalize_poster_path(poster) or ""
+        payload.setdefault("adult", movie.is_adult)
+        payload.setdefault("source_domain", properties.get("source_domain"))
+        runtime = properties.get("runtime")
+        if runtime and "runtime" not in payload:
+            payload["runtime"] = runtime
         catalog[payload["id"]] = payload
     return catalog
 
 
-def _load_recent_imports(tenant_id: str) -> OrderedDict[str, dict[str, Any]]:
+def _series_catalog_items(tenant_id: str) -> OrderedDict[str, dict[str, Any]]:
     catalog: OrderedDict[str, dict[str, Any]] = OrderedDict()
-    logs = (
-        JobLog.query.options(joinedload(JobLog.job))
-        .join(Job)
-        .filter(Job.tenant_id == tenant_id)
-        .order_by(JobLog.created_at.desc())
-        .limit(500)
+    series_list = (
+        StreamSeries.query.options(joinedload(StreamSeries.episodes))
+        .filter_by(tenant_id=tenant_id)
+        .order_by(StreamSeries.created_at.desc())
         .all()
     )
-    for log in logs:
-        try:
-            payload = log.content
-            if isinstance(payload, str):
-                payload = json.loads(payload)
-        except Exception:  # pragma: no cover - resilient to malformed logs
-            continue
-
-        if not isinstance(payload, dict) or payload.get("kind") != "item":
-            continue
-
-        job = log.job
-        content_type = payload.get("type") or (job and _JOB_TYPE_TO_CONTENT_TYPE.get(job.type))
-        if content_type not in _CONTENT_PREFIX:
-            continue
-        tmdb_id = payload.get("tmdb_id")
-        if not tmdb_id:
-            continue
-
-        content_id = f"{_CONTENT_PREFIX[content_type]}{tmdb_id}"
-        if content_id in catalog:
-            continue
-
-        title = payload.get("title")
-        if not title:
-            continue
-
-        item: dict[str, Any] = {
-            "id": content_id,
-            "type": content_type,
-            "title": title,
-            "year": payload.get("year"),
-            "genres": payload.get("genres") or [],
-            "adult": payload.get("adult", False),
-            "source_tag": payload.get("source_tag"),
-            "source_tag_filmes": payload.get("source_tag_filmes"),
-        }
-        if content_type == "series":
-            item["seasons"] = payload.get("seasons") or 0
-            series_status = payload.get("series_status")
-            raw_status = payload.get("status")
-            if not series_status and raw_status not in {None, "inserted", "error"}:
-                series_status = raw_status
-            item["status"] = series_status or "indefinido"
-        else:
-            item["poster"] = _normalize_poster_path(payload.get("poster")) or ""
-            runtime = payload.get("runtime")
-            if runtime:
-                item["runtime"] = runtime
-        overview = payload.get("overview")
-        if overview:
-            item["overview"] = overview
-        poster = payload.get("poster") if content_type == "series" else None
-        if content_type == "series":
-            item["poster"] = _normalize_poster_path(poster) or ""
-        source_domain = payload.get("source_domain")
-        if source_domain:
-            item["source_domain"] = source_domain
-        catalog[content_id] = item
+    for series in series_list:
+        payload = series.as_catalog_item()
+        payload["poster"] = _normalize_poster_path(payload.get("poster") or series.poster) or ""
+        payload.setdefault("genres", series.genres or [])
+        payload.setdefault("adult", series.is_adult)
+        if not payload.get("seasons"):
+            seasons = {episode.season for episode in series.episodes}
+            payload["seasons"] = len(seasons)
+        catalog[payload["id"]] = payload
     return catalog
 
 
 def _catalog_from_db(tenant_id: str) -> list[dict[str, Any]]:
+    catalog: OrderedDict[str, dict[str, Any]] = OrderedDict()
+    catalog.update(_movie_catalog_items(tenant_id))
+    catalog.update(_series_catalog_items(tenant_id))
+
     saved_items = (
         BouquetItem.query.join(Bouquet)
         .filter(Bouquet.tenant_id == tenant_id)
         .order_by(BouquetItem.created_at.desc())
         .all()
     )
-    catalog = _load_items_for_catalog(saved_items)
-
-    recent = _load_recent_imports(tenant_id)
-    for content_id, item in recent.items():
-        if content_id not in catalog:
-            catalog[content_id] = item
+    for item in saved_items:
+        payload = item.as_catalog_item()
+        payload["poster"] = _normalize_poster_path(payload.get("poster")) or payload.get("poster") or ""
+        existing = catalog.get(payload["id"]) or {}
+        existing.update({k: v for k, v in payload.items() if v is not None})
+        catalog[payload["id"]] = existing or payload
 
     return list(catalog.values())
 
 
 def _invalidate_catalog_cache(tenant_id: str) -> None:
     _CATALOG_CACHE.pop(tenant_id, None)
+
+
+def invalidate_catalog_cache(tenant_id: str) -> None:
+    _invalidate_catalog_cache(tenant_id)
 
 
 def get_catalog(tenant_id: str) -> list[dict[str, Any]]:
