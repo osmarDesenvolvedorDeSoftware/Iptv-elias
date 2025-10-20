@@ -8,7 +8,7 @@ services:
       MYSQL_USER: iptv
       MYSQL_PASSWORD: iptv
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - db_data:/var/lib/mysql
 
@@ -16,7 +16,7 @@ services:
     image: redis:7.2
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
 
   api:
     build:
