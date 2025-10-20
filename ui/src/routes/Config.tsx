@@ -19,6 +19,22 @@ function cloneConfig(config: ConfigResponse): ConfigResponse {
   return JSON.parse(JSON.stringify(config));
 }
 
+function normalizeConfig(config: ConfigResponse): ConfigResponse {
+  const defaultCategories = Array.isArray(config.importer?.defaultCategories)
+    ? config.importer.defaultCategories.filter(
+        (category): category is string => typeof category === 'string' && category.trim().length > 0,
+      )
+    : [];
+
+  return {
+    ...config,
+    importer: {
+      ...config.importer,
+      defaultCategories,
+    },
+  };
+}
+
 function isConfigValid(config: ConfigResponse): boolean {
   if (!config.tmdb.apiKey.trim()) {
     return false;
@@ -92,7 +108,11 @@ export default function Configuracoes() {
       return '';
     }
 
-    return config.importer.defaultCategories.join(', ');
+    const categories = Array.isArray(config.importer?.defaultCategories)
+      ? config.importer.defaultCategories
+      : [];
+
+    return categories.join(', ');
   }, [config]);
 
   const tmdbErrors = {
@@ -113,8 +133,9 @@ export default function Configuracoes() {
 
     try {
       const response = await getConfig();
-      setConfig(cloneConfig(response));
-      setInitialConfig(cloneConfig(response));
+      const normalized = normalizeConfig(response);
+      setConfig(cloneConfig(normalized));
+      setInitialConfig(cloneConfig(normalized));
       setRestartRequired(false);
       setShowErrors(false);
     } catch (loadError) {
@@ -189,7 +210,7 @@ export default function Configuracoes() {
     const categories = event.target.value
       .split(',')
       .map((category) => category.trim())
-      .filter(Boolean);
+      .filter((category): category is string => Boolean(category));
 
     setConfig((current) => {
       if (!current) {
