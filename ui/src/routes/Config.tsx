@@ -107,6 +107,10 @@ export default function Configuracoes() {
   const [initialAdultKeywordsText, setInitialAdultKeywordsText] = useState('');
   const [adultCategoriesText, setAdultCategoriesText] = useState('');
   const [initialAdultCategoriesText, setInitialAdultCategoriesText] = useState('');
+  const [ignorePrefixesText, setIgnorePrefixesText] = useState('');
+  const [initialIgnorePrefixesText, setInitialIgnorePrefixesText] = useState('');
+  const [ignoreCategoriesText, setIgnoreCategoriesText] = useState('');
+  const [initialIgnoreCategoriesText, setInitialIgnoreCategoriesText] = useState('');
   const [integrationPassword, setIntegrationPassword] = useState('');
   const [clearIntegrationPassword, setClearIntegrationPassword] = useState(false);
   const [integrationValidationError, setIntegrationValidationError] = useState<string | null>(null);
@@ -159,6 +163,8 @@ export default function Configuracoes() {
       seriesMappingText !== initialSeriesMappingText ||
       adultKeywordsText !== initialAdultKeywordsText ||
       adultCategoriesText !== initialAdultCategoriesText ||
+      ignorePrefixesText !== initialIgnorePrefixesText ||
+      ignoreCategoriesText !== initialIgnoreCategoriesText ||
       integrationPassword.trim().length > 0 ||
       clearIntegrationPassword
     );
@@ -173,6 +179,10 @@ export default function Configuracoes() {
     initialAdultKeywordsText,
     adultCategoriesText,
     initialAdultCategoriesText,
+    ignorePrefixesText,
+    initialIgnorePrefixesText,
+    ignoreCategoriesText,
+    initialIgnoreCategoriesText,
     integrationPassword,
     clearIntegrationPassword,
   ]);
@@ -237,6 +247,37 @@ export default function Configuracoes() {
         .map((category) => String(category))
         .join(', ');
 
+      const prefixesSource = Array.isArray(response.ignorePrefixes) && response.ignorePrefixes.length > 0
+        ? response.ignorePrefixes
+        : [
+            ...((response.options?.ignore?.movies?.prefixes as unknown[]) ?? []),
+            ...((response.options?.ignore?.series?.prefixes as unknown[]) ?? []),
+          ];
+      const categoriesSource = Array.isArray(response.ignoreCategories) && response.ignoreCategories.length > 0
+        ? response.ignoreCategories
+        : [
+            ...((response.options?.ignore?.movies?.categories as unknown[]) ?? []),
+            ...((response.options?.ignore?.series?.categories as unknown[]) ?? []),
+          ];
+
+      const normalizedPrefixes = Array.from(
+        new Set(
+          prefixesSource
+            .map((value) => String(value ?? '').trim())
+            .filter((value) => value.length > 0),
+        ),
+      );
+      const normalizedCategories = Array.from(
+        new Set(
+          categoriesSource
+            .map((value) => String(value ?? '').trim())
+            .filter((value) => value.length > 0),
+        ),
+      );
+
+      const prefixesText = normalizedPrefixes.join(', ');
+      const ignoreCategoriesTextValue = normalizedCategories.join(', ');
+
       setMoviesMappingText(moviesText);
       setInitialMoviesMappingText(moviesText);
       setSeriesMappingText(seriesText);
@@ -245,6 +286,10 @@ export default function Configuracoes() {
       setInitialAdultKeywordsText(keywordsText);
       setAdultCategoriesText(categoriesText);
       setInitialAdultCategoriesText(categoriesText);
+      setIgnorePrefixesText(prefixesText);
+      setInitialIgnorePrefixesText(prefixesText);
+      setIgnoreCategoriesText(ignoreCategoriesTextValue);
+      setInitialIgnoreCategoriesText(ignoreCategoriesTextValue);
       setIntegrationPassword('');
       setClearIntegrationPassword(false);
       setIntegrationValidationError(null);
@@ -458,6 +503,8 @@ export default function Configuracoes() {
     setSeriesMappingText(initialSeriesMappingText);
     setAdultKeywordsText(initialAdultKeywordsText);
     setAdultCategoriesText(initialAdultCategoriesText);
+    setIgnorePrefixesText(initialIgnorePrefixesText);
+    setIgnoreCategoriesText(initialIgnoreCategoriesText);
     setIntegrationPassword('');
     setClearIntegrationPassword(false);
     setIntegrationValidationError(null);
@@ -531,6 +578,26 @@ export default function Configuracoes() {
         const numeric = Number(category);
         return Number.isFinite(numeric) ? numeric : category;
       });
+    const ignorePrefixes = Array.from(
+      new Set(
+        ignorePrefixesText
+          .split(',')
+          .map((prefix) => prefix.trim())
+          .filter((prefix) => prefix.length > 0),
+      ),
+    );
+    const ignoreCategories = Array.from(
+      new Set(
+        ignoreCategoriesText
+          .split(',')
+          .map((category) => category.trim())
+          .filter((category) => category.length > 0)
+          .map((category) => {
+            const numeric = Number(category);
+            return Number.isFinite(numeric) ? numeric : category;
+          }),
+      ),
+    );
 
     const options = {
       ...integrationConfig.options,
@@ -540,6 +607,10 @@ export default function Configuracoes() {
       },
       adultKeywords,
       adultCategories,
+      ignore: {
+        movies: { categories: ignoreCategories, prefixes: ignorePrefixes },
+        series: { categories: ignoreCategories, prefixes: ignorePrefixes },
+      },
       bouquets: {
         movies: parseNumericValue(String(integrationConfig.options.bouquets.movies ?? '')),
         series: parseNumericValue(String(integrationConfig.options.bouquets.series ?? '')),
@@ -565,6 +636,14 @@ export default function Configuracoes() {
       options,
     };
 
+    const tmdbKeyValue =
+      typeof integrationConfig.options.tmdb.apiKey === 'string'
+        ? integrationConfig.options.tmdb.apiKey.trim()
+        : '';
+    payload.tmdbKey = tmdbKeyValue ? tmdbKeyValue : null;
+    payload.ignorePrefixes = ignorePrefixes;
+    payload.ignoreCategories = ignoreCategories;
+
     if (integrationPassword.trim()) {
       payload.xtreamPassword = integrationPassword.trim();
     } else if (clearIntegrationPassword) {
@@ -585,6 +664,12 @@ export default function Configuracoes() {
       const updatedCategories = (updated.options.adultCategories ?? [])
         .map((category) => String(category))
         .join(', ');
+      const updatedIgnorePrefixes = (updated.ignorePrefixes ?? [])
+        .map((prefix) => String(prefix))
+        .join(', ');
+      const updatedIgnoreCategories = (updated.ignoreCategories ?? [])
+        .map((category) => String(category))
+        .join(', ');
 
       setMoviesMappingText(updatedMovies);
       setInitialMoviesMappingText(updatedMovies);
@@ -594,6 +679,10 @@ export default function Configuracoes() {
       setInitialAdultKeywordsText(updatedKeywords);
       setAdultCategoriesText(updatedCategories);
       setInitialAdultCategoriesText(updatedCategories);
+      setIgnorePrefixesText(updatedIgnorePrefixes);
+      setInitialIgnorePrefixesText(updatedIgnorePrefixes);
+      setIgnoreCategoriesText(updatedIgnoreCategories);
+      setInitialIgnoreCategoriesText(updatedIgnoreCategories);
       setIntegrationPassword('');
       setClearIntegrationPassword(false);
       setIntegrationValidationError(null);
@@ -1063,6 +1152,34 @@ export default function Configuracoes() {
                 value={integrationConfig.options.bouquets.adult ?? ''}
                 onChange={handleIntegrationFieldChange}
               />
+            </div>
+            <div className="col-12 col-md-6">
+              <label htmlFor="integration-ignore-prefixes" className="form-label text-uppercase small text-muted">
+                Prefixos ignorados
+              </label>
+              <input
+                id="integration-ignore-prefixes"
+                type="text"
+                className="form-control"
+                value={ignorePrefixesText}
+                placeholder="Separados por vírgula"
+                onChange={(event) => setIgnorePrefixesText(event.target.value)}
+              />
+              <div className="form-text">Aplicado a filmes e séries.</div>
+            </div>
+            <div className="col-12 col-md-6">
+              <label htmlFor="integration-ignore-categories" className="form-label text-uppercase small text-muted">
+                Categorias ignoradas (IDs)
+              </label>
+              <input
+                id="integration-ignore-categories"
+                type="text"
+                className="form-control"
+                value={ignoreCategoriesText}
+                placeholder="Separadas por vírgula"
+                onChange={(event) => setIgnoreCategoriesText(event.target.value)}
+              />
+              <div className="form-text">Aceita números ou nomes de categorias já existentes.</div>
             </div>
             <div className="col-12 col-md-6">
               <label htmlFor="integration-adult-keywords" className="form-label text-uppercase small text-muted">

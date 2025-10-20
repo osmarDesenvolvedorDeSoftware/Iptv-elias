@@ -6,6 +6,7 @@ import { useTheme } from '../providers/ThemeProvider';
 
 const navigation = [
   { label: 'Dashboard', to: '/' },
+  { label: 'Tenants', to: '/tenants' },
   { label: 'Importação', to: '/importacao' },
   { label: 'Bouquets', to: '/bouquets' },
   { label: 'Relatórios & Logs', to: '/logs' },

@@ -258,6 +258,10 @@ export interface XuiIntegrationConfig {
   xtreamBaseUrl: string | null;
   xtreamUsername: string | null;
   hasXtreamPassword: boolean;
+  xuiApiUser?: string | null;
+  tmdbKey?: string | null;
+  ignorePrefixes?: string[];
+  ignoreCategories?: Array<string | number>;
   options: XuiIntegrationOptions;
 }
 
@@ -265,4 +269,16 @@ export interface SaveXuiIntegrationResponse {
   ok: boolean;
   config: XuiIntegrationConfig;
   requiresWorkerRestart: boolean;
+}
+
+export interface TenantSummary {
+  id: string;
+  name: string;
+  createdAt: string | null;
+}
+
+export interface TenantCreationResponse {
+  ok: boolean;
+  tenant: TenantSummary;
+  integration?: XuiIntegrationConfig;
 }
