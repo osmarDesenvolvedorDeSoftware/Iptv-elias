@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 
-import { ImportJobHistoryItem } from '../data/types';
+import { ImportJobHistoryItem, NormalizationInfo } from '../data/types';
 
 const statusLabels: Record<ImportJobHistoryItem['status'], string> = {
   queued: 'Na fila',
@@ -26,6 +26,8 @@ interface ImportCardProps {
   onViewLog: () => void;
   onConfigure: () => void;
   actionLoading?: boolean;
+  onSelectJob?: (jobId: number) => void;
+  selectedJobId?: number | null;
 }
 
 const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', {
@@ -51,6 +53,32 @@ function formatProgress(progress?: number) {
   return Math.round(progress * 100);
 }
 
+function formatNormalizationLabel(normalization?: NormalizationInfo): string {
+  if (!normalization) {
+    return '—';
+  }
+
+  if (normalization.status === 'failed') {
+    return 'Falhou';
+  }
+
+  return 'Ok';
+}
+
+function buildNormalizationTitle(normalization?: NormalizationInfo): string | undefined {
+  if (!normalization) {
+    return undefined;
+  }
+
+  if (normalization.status === 'failed') {
+    return normalization.message || 'Falha na normalização automática.';
+  }
+
+  const streams = normalization.streams || {};
+  const series = normalization.series || {};
+  return `Streams: ${streams.updated ?? 0}/${streams.total ?? 0} atualizados. Séries: ${series.tagged ?? 0}/${series.total ?? 0} etiquetadas.`;
+}
+
 export const ImportCard = memo(function ImportCard({
   title,
   loading,
@@ -61,6 +89,8 @@ export const ImportCard = memo(function ImportCard({
   onViewLog,
   onConfigure,
   actionLoading,
+  onSelectJob,
+  selectedJobId,
 }: ImportCardProps) {
   const orderedItems = useMemo(
     () =>
@@ -166,6 +196,7 @@ export const ImportCard = memo(function ImportCard({
                     <th scope="col">ID</th>
                     <th scope="col">Início</th>
                     <th scope="col">Status</th>
+                    <th scope="col">Normalização</th>
                     <th scope="col">Inseridos</th>
                     <th scope="col">Atualizados</th>
                     <th scope="col">Ignorados</th>
@@ -175,11 +206,39 @@ export const ImportCard = memo(function ImportCard({
                 </thead>
                 <tbody>
                   {history.map((job) => (
-                    <tr key={job.id}>
+                    <tr
+                      key={job.id}
+                      className={job.id === selectedJobId ? 'table-active' : undefined}
+                      onClick={
+                        onSelectJob
+                          ? () => {
+                              onSelectJob(job.id);
+                            }
+                          : undefined
+                      }
+                      role={onSelectJob ? 'button' : undefined}
+                      style={onSelectJob ? { cursor: 'pointer' } : undefined}
+                      aria-selected={onSelectJob ? job.id === selectedJobId : undefined}
+                    >
                       <td>#{job.id}</td>
                       <td>{dateTimeFormatter.format(new Date(job.startedAt))}</td>
                       <td>
                         <span className={statusClassNames[job.status]}>{statusLabels[job.status]}</span>
+                      </td>
+                      <td title={buildNormalizationTitle(job.normalization)}>
+                        {job.normalization ? (
+                          <span
+                            className={
+                              job.normalization.status === 'success'
+                                ? 'badge badge-success'
+                                : 'badge badge-warning'
+                            }
+                          >
+                            {formatNormalizationLabel(job.normalization)}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td>{job.inserted ?? '—'}</td>
                       <td>{job.updated ?? '—'}</td>

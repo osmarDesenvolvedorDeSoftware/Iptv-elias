@@ -1,6 +1,8 @@
 import { get, isMockEnabled, post } from '../adapters/ApiAdapter';
 import { MockAdapter } from '../adapters/MockAdapter';
 import {
+  JobDetail,
+  JobLogsResponse,
   ImportListResponse,
   ImportRunResponse,
   ImportType,
@@ -38,4 +40,35 @@ export async function getJobStatus(jobId: number): Promise<JobStatusResponse> {
   }
 
   return get<JobStatusResponse>(`/jobs/${jobId}/status`);
+}
+
+export async function getJobDetail(jobId: number): Promise<JobDetail> {
+  if (isMockEnabled) {
+    return MockAdapter.fetch<JobDetail>(`jobs.detail.${jobId}.json`);
+  }
+
+  return get<JobDetail>(`/jobs/${jobId}`);
+}
+
+interface JobLogsParams {
+  after?: number | null;
+  limit?: number;
+}
+
+export async function getJobLogs(jobId: number, params: JobLogsParams = {}): Promise<JobLogsResponse> {
+  if (isMockEnabled) {
+    return MockAdapter.fetch<JobLogsResponse>(`jobs.logs.${jobId}.json`);
+  }
+
+  const search = new URLSearchParams();
+  if (typeof params.after === 'number') {
+    search.set('after', String(params.after));
+  }
+  if (typeof params.limit === 'number') {
+    search.set('limit', String(params.limit));
+  }
+
+  const query = search.toString();
+  const suffix = query ? `?${query}` : '';
+  return get<JobLogsResponse>(`/jobs/${jobId}/logs${suffix}`);
 }
