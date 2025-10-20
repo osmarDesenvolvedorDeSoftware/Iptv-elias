@@ -20,7 +20,7 @@ def init_celery(app):
         timezone="UTC",
         enable_utc=True,
     )
-    celery_app.autodiscover_tasks(["app.tasks"])
+    celery_app.autodiscover_tasks(["app"])
 
     class ContextTask(celery_app.Task):
         def __call__(self, *args, **kwargs):
