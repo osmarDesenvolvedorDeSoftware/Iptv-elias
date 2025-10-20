@@ -30,6 +30,10 @@ _CONFIG = Config()
 _T = TypeVar("_T")
 
 
+class NormalizationError(RuntimeError):
+    """Erro disparado quando a etapa de normalização automática falha."""
+
+
 def _clean_option_str(value: Any) -> str | None:
     if isinstance(value, str):
         trimmed = value.strip()
@@ -1058,7 +1062,37 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
         repository = XuiRepository(engine)
         repository.ensure_compatibility()
 
-        normalization_result = repository.normalize_sources()
+        try:
+            normalization_result = repository.normalize_sources()
+        except Exception as exc:  # pragma: no cover - depende de integrações externas
+            logger.exception("Falha na normalização automática antes da importação: %s", exc)
+            db.session.rollback()
+            job = Job.query.get(job.id)
+            if job:
+                job.status = JobStatus.FAILED
+                job.finished_at = datetime.utcnow()
+                job.duration_sec = (
+                    int((job.finished_at - job.started_at).total_seconds())
+                    if job.started_at
+                    else None
+                )
+                job.error = f"Falha na normalização automática: {exc}"
+                job.eta_sec = None
+                db.session.add(
+                    JobLog(
+                        job_id=job.id,
+                        content=json.dumps(
+                            {
+                                "kind": "normalizationError",
+                                "message": str(exc),
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                )
+                db.session.commit()
+            raise NormalizationError(str(exc)) from exc
+
         _log_normalization(job, normalization_result)
         if tipo == "filmes":
             importer = _MovieImporter(
@@ -1103,6 +1137,8 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
         db.session.add(JobLog(job_id=job.id, content=json.dumps(summary, ensure_ascii=False)))
         db.session.commit()
 
+    except NormalizationError:
+        raise
     except (XtreamError, RuntimeError, SQLAlchemyError, requests.RequestException) as exc:
         logger.exception("Importação %s falhou: %s", tipo, exc)
         db.session.rollback()

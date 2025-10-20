@@ -36,6 +36,11 @@ export interface ImportJobHistoryItem {
   etaSec?: number;
   trigger: string;
   user: string;
+  type?: ImportType;
+  sourceTag?: string;
+  sourceTagFilmes?: string;
+  error?: string | null;
+  normalization?: NormalizationInfo;
 }
 
 export interface ImportListResponse {
@@ -55,6 +60,51 @@ export interface JobStatusResponse {
   status: ImportJobStatus | 'cancelled';
   progress?: number;
   etaSec?: number;
+}
+
+export interface NormalizationSuccess {
+  status: 'success';
+  logId: number;
+  createdAt: string;
+  streams: {
+    total?: number;
+    updated?: number;
+    moviesTagged?: number;
+  };
+  series: {
+    total?: number;
+    tagged?: number;
+    episodesAnalyzed?: number;
+  };
+}
+
+export interface NormalizationFailure {
+  status: 'failed';
+  logId: number;
+  createdAt: string;
+  message?: string;
+}
+
+export type NormalizationInfo = NormalizationSuccess | NormalizationFailure;
+
+export interface JobDetail extends ImportJobHistoryItem {
+  type: ImportType;
+  createdAt: string;
+  logCount: number;
+}
+
+export interface JobLogEntry {
+  id: number;
+  createdAt: string;
+  kind?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface JobLogsResponse {
+  items: JobLogEntry[];
+  hasMore: boolean;
+  nextAfter: number | null;
 }
 
 export interface ImportQueueEntry {
