@@ -41,7 +41,7 @@ def upgrade() -> None:
         "configurations",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("tenant_id", sa.String(length=64), sa.ForeignKey("tenants.id"), nullable=False, unique=True),
-        sa.Column("data", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
+        sa.Column("data", sa.JSON(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
     )
 
