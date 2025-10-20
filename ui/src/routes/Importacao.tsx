@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
 import { isMockEnabled } from '../data/adapters/ApiAdapter';
@@ -29,6 +30,7 @@ const typeToTitle: Record<ImportType, string> = {
 export default function Importacao() {
   const { push } = useToast();
   const useMocks = isMockEnabled;
+  const navigate = useNavigate();
   const [states, setStates] = useState<Record<ImportType, ImportCardState>>({
     filmes: { ...initialState },
     series: { ...initialState },
@@ -132,7 +134,7 @@ export default function Importacao() {
                   push(`Visualização de log para ${typeToTitle[type]} ainda não disponível.`, 'info')
                 }
                 onConfigure={() =>
-                  push(`Configuração de ${typeToTitle[type]} ainda não disponível.`, 'info')
+                  navigate('/configuracoes?tab=xui')
                 }
                 onRetry={() => loadImports(type)}
               />
