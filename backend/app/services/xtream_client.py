@@ -21,6 +21,7 @@ class XtreamClient:
         throttle_ms: int = 0,
         max_retries: int = 3,
         backoff_seconds: int = 5,
+        max_parallel: int = 1,
         session: requests.Session | None = None,
     ) -> None:
         if not base_url or not username or not password:
@@ -32,7 +33,9 @@ class XtreamClient:
         self.throttle_ms = throttle_ms
         self.max_retries = max(1, max_retries)
         self.backoff_seconds = max(1, backoff_seconds)
+        self.max_parallel = max(1, max_parallel)
         self.session = session or requests.Session()
+        self._throttle_counter = 0
 
     def _call(self, action: str, params: dict[str, Any] | None = None) -> Any:
         query = {
@@ -58,7 +61,10 @@ class XtreamClient:
 
     def _throttle(self) -> None:
         if self.throttle_ms > 0:
-            time.sleep(self.throttle_ms / 1000)
+            self._throttle_counter += 1
+            if self._throttle_counter >= self.max_parallel:
+                time.sleep(self.throttle_ms / 1000)
+                self._throttle_counter = 0
 
     def vod_streams(self) -> list[dict[str, Any]]:
         payload = self._call("get_vod_streams")

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping, TypeVar
 
 import requests
 from sqlalchemy.exc import SQLAlchemyError
@@ -26,6 +27,56 @@ logger = logging.getLogger(__name__)
 _IMPORT_TYPES = {"filmes", "series"}
 _LOG_BATCH = 10
 _CONFIG = Config()
+_T = TypeVar("_T")
+
+
+def _clean_option_str(value: Any) -> str | None:
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return trimmed or None
+    return None
+
+
+def _sanitize_tmdb_query(title: str) -> str:
+    if not isinstance(title, str):
+        return ""
+    sanitized = re.sub(r"\s*-\s*\d{4}$", "", title)
+    sanitized = re.sub(r"\(\d{4}\)", "", sanitized)
+    sanitized = re.sub(r"\s{2,}", " ", sanitized)
+    return sanitized.strip()
+
+
+def _parse_ignore_entry(entry: Any) -> dict[str, Any]:
+    category_ids: set[str] = set()
+    category_names: dict[str, str] = {}
+    prefixes: list[tuple[str, str]] = []
+    if isinstance(entry, Mapping):
+        raw_categories = entry.get("categories")
+        if isinstance(raw_categories, (list, tuple, set)):
+            for item in raw_categories:
+                if item is None:
+                    continue
+                value = str(item).strip()
+                if not value:
+                    continue
+                category_ids.add(value)
+                if not value.isdigit():
+                    normalized = value.lower()
+                    category_names.setdefault(normalized, value)
+        raw_prefixes = entry.get("prefixes")
+        if isinstance(raw_prefixes, (list, tuple, set)):
+            for raw_prefix in raw_prefixes:
+                if not isinstance(raw_prefix, str):
+                    continue
+                trimmed = raw_prefix.strip()
+                if not trimmed:
+                    continue
+                prefixes.append((trimmed, trimmed.lower()))
+    return {
+        "category_ids": category_ids,
+        "category_names": category_names,
+        "prefixes": tuple(prefixes),
+    }
 
 
 def _ensure_job(tipo: str, tenant_id: str, user_id: int, job_id: int | None) -> Job:
@@ -84,21 +135,28 @@ def _log_normalization(job: Job, result: NormalizationResult) -> None:
 def _build_tmdb_params(options: Mapping[str, Any]) -> dict[str, Any] | None:
     tmdb_opts = options.get("tmdb", {}) if isinstance(options, Mapping) else {}
     enabled = bool(tmdb_opts.get("enabled"))
-    api_key = tmdb_opts.get("apiKey") or _CONFIG.TMDB_API_KEY
+    api_key = _clean_option_str(tmdb_opts.get("apiKey")) or _clean_option_str(_CONFIG.TMDB_API_KEY)
     if not enabled or not api_key:
         return None
+    language = _clean_option_str(tmdb_opts.get("language")) or _clean_option_str(_CONFIG.TMDB_LANGUAGE)
+    region = _clean_option_str(tmdb_opts.get("region")) or _clean_option_str(_CONFIG.TMDB_REGION)
     return {
         "api_key": api_key,
-        "language": tmdb_opts.get("language") or _CONFIG.TMDB_LANGUAGE,
-        "region": tmdb_opts.get("region") or _CONFIG.TMDB_REGION,
+        "language": language or _CONFIG.TMDB_LANGUAGE,
+        "region": region or _CONFIG.TMDB_REGION,
     }
 
 
 def _fetch_tmdb_movie(title: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
     try:
+        query = _sanitize_tmdb_query(title)
+        if not query:
+            query = (title or "").strip()
+        if not query:
+            return {}
         response = requests.get(
             "https://api.themoviedb.org/3/search/movie",
-            params={"query": title, **params, "page": 1, "include_adult": True},
+            params={"query": query, **params, "page": 1, "include_adult": True},
             timeout=20,
         )
         response.raise_for_status()
@@ -122,9 +180,14 @@ def _fetch_tmdb_movie(title: str, params: Mapping[str, Any]) -> Mapping[str, Any
 
 def _fetch_tmdb_series(title: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
     try:
+        query = _sanitize_tmdb_query(title)
+        if not query:
+            query = (title or "").strip()
+        if not query:
+            return {}
         response = requests.get(
             "https://api.themoviedb.org/3/search/tv",
-            params={"query": title, **params, "page": 1},
+            params={"query": query, **params, "page": 1},
             timeout=20,
         )
         response.raise_for_status()
@@ -246,6 +309,21 @@ class _BaseImporter:
         self.ignored = 0
         self.errors = 0
         self.domains: Counter[str] = Counter()
+        ignore_opts = options.get("ignore") if isinstance(options, Mapping) else {}
+        self._ignore_movies = _parse_ignore_entry(ignore_opts.get("movies") if isinstance(ignore_opts, Mapping) else None)
+        self._ignore_series = _parse_ignore_entry(ignore_opts.get("series") if isinstance(ignore_opts, Mapping) else None)
+        retry_opts = options.get("retry") if isinstance(options, Mapping) else {}
+        retry_mapping = retry_opts if isinstance(retry_opts, Mapping) else {}
+        self._retry_enabled = bool(retry_mapping.get("enabled", True))
+        max_attempts_raw = retry_mapping.get("maxAttempts")
+        backoff_raw = retry_mapping.get("backoffSeconds")
+        self._retry_max_attempts = max(1, int(max_attempts_raw if max_attempts_raw is not None else 3))
+        self._retry_backoff = max(1, int(backoff_raw if backoff_raw is not None else 5))
+        self._write_throttle_ms = max(0, int(options.get("throttleMs") or 0)) if isinstance(options, Mapping) else 0
+        self._max_parallel_writes = max(1, int(options.get("maxParallel") or 1)) if isinstance(options, Mapping) else 1
+        self._write_counter = 0
+        self._movie_cache: dict[str, Mapping[str, Any] | None] = {}
+        self._episode_cache: dict[str, Mapping[str, Any] | None] = {}
 
     def _log(self, payload: Mapping[str, Any]) -> None:
         self.buffer.append(dict(payload))
@@ -271,6 +349,74 @@ class _BaseImporter:
     def execute(self) -> None:
         raise NotImplementedError
 
+    def _with_retry(self, func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:  # pragma: no cover - defensivo
+                if not self._retry_enabled or attempts >= self._retry_max_attempts:
+                    raise
+                wait_time = self._retry_backoff * attempts
+                logger.warning(
+                    "Operação %s falhou (tentativa %s/%s): %s",
+                    getattr(func, "__name__", repr(func)),
+                    attempts,
+                    self._retry_max_attempts,
+                    exc,
+                )
+                time.sleep(wait_time)
+
+    def _apply_write_throttle(self) -> None:
+        if self._write_throttle_ms <= 0:
+            return
+        self._write_counter += 1
+        if self._write_counter >= self._max_parallel_writes:
+            time.sleep(self._write_throttle_ms / 1000)
+            self._write_counter = 0
+
+    def _should_ignore(
+        self,
+        kind: str,
+        title: str,
+        category_id: str | None,
+        category_name: str | None,
+    ) -> dict[str, str] | None:
+        rules = self._ignore_movies if kind == "movies" else self._ignore_series
+        cat_id = (category_id or "").strip()
+        cat_name = (category_name or "").strip()
+        if cat_id and cat_id in rules["category_ids"]:
+            return {"type": "categoryId", "value": cat_id}
+        if cat_name:
+            normalized = cat_name.lower()
+            if normalized in rules["category_names"]:
+                return {"type": "categoryName", "value": rules["category_names"][normalized]}
+        title_clean = (title or "").strip()
+        if not title_clean:
+            return None
+        title_lower = title_clean.lower()
+        for raw_prefix, normalized_prefix in rules["prefixes"]:
+            if title_lower.startswith(normalized_prefix):
+                return {"type": "prefix", "value": raw_prefix}
+        return None
+
+    def _get_cached_movie(self, url: str) -> Mapping[str, Any] | None:
+        if url not in self._movie_cache:
+            self._movie_cache[url] = self._with_retry(self.repository.movie_url_exists, url)
+        return self._movie_cache[url]
+
+    def _cache_movie(self, url: str, payload: Mapping[str, Any] | None) -> None:
+        self._movie_cache[url] = payload
+
+    def _get_cached_episode(self, url: str) -> Mapping[str, Any] | None:
+        if url not in self._episode_cache:
+            self._episode_cache[url] = self._with_retry(self.repository.episode_url_exists, url)
+        return self._episode_cache[url]
+
+    def _cache_episode(self, url: str, payload: Mapping[str, Any] | None) -> None:
+        self._episode_cache[url] = payload
+
 
 class _MovieImporter(_BaseImporter):
     def execute(self) -> None:
@@ -280,6 +426,10 @@ class _MovieImporter(_BaseImporter):
             data = data[:limit]
         mapping = (self.options.get("categoryMapping", {}) or {}).get("movies", {})
         tmdb_params = _build_tmdb_params(self.options)
+        tmdb_language = None
+        if isinstance(tmdb_params, Mapping):
+            tmdb_language = tmdb_params.get("language")
+        tmdb_language = tmdb_language or _CONFIG.TMDB_LANGUAGE
         bouquets = self.options.get("bouquets", {}) or {}
         movies_bouquet = bouquets.get("movies")
         adult_bouquet = bouquets.get("adult")
@@ -309,6 +459,26 @@ class _MovieImporter(_BaseImporter):
                     self._commit()
                     continue
 
+                ignore_info = self._should_ignore("movies", title, category_id, category_name)
+                if ignore_info:
+                    self.processed += 1
+                    self.ignored += 1
+                    log_payload = {
+                        "kind": "item",
+                        "status": "ignored",
+                        "title": title,
+                        "reason": f"ignored-{ignore_info['type']}",
+                    }
+                    if category_id:
+                        log_payload["categoryId"] = category_id
+                    if category_name:
+                        log_payload["categoryName"] = category_name
+                    if ignore_info["type"] == "prefix":
+                        log_payload["prefix"] = ignore_info["value"]
+                    self._log(log_payload)
+                    self._commit()
+                    continue
+
                 xui_category = mapping.get(str(category_id)) if isinstance(mapping, dict) else None
                 xui_category_id = _normalize_int(xui_category)
                 if xui_category_id is None:
@@ -332,10 +502,15 @@ class _MovieImporter(_BaseImporter):
                 is_adult = _is_adult(title, category_name, category_id, self.options)
                 target_container = target_container_from_url(url)
                 source_tag = source_tag_from_url(url)
-                existing = self.repository.movie_url_exists(url)
+                existing = self._get_cached_movie(url)
                 if existing:
+                    existing_id_raw = existing.get("id") if isinstance(existing, Mapping) else None
+                    try:
+                        existing_id = int(existing_id_raw) if existing_id_raw is not None else None
+                    except (TypeError, ValueError):
+                        existing_id = None
                     existing_categories: list[int] = []
-                    for cid in existing.get("category_ids", []):
+                    for cid in existing.get("category_ids", []) if isinstance(existing, Mapping) else []:
                         try:
                             existing_categories.append(int(cid))
                         except (TypeError, ValueError):
@@ -343,10 +518,14 @@ class _MovieImporter(_BaseImporter):
                     new_categories = list(existing_categories)
                     if xui_category_id is not None and xui_category_id not in new_categories:
                         new_categories.append(xui_category_id)
-                    new_icon = icon or existing.get("stream_icon") or ""
-                    new_target = target_container or existing.get("target_container")
-                    new_properties = properties or existing.get("movie_properties") or {}
-                    current_tag = existing.get("source_tag_filmes")
+                    existing_icon = existing.get("stream_icon") if isinstance(existing, Mapping) else ""
+                    existing_target = existing.get("target_container") if isinstance(existing, Mapping) else None
+                    existing_properties = existing.get("movie_properties") if isinstance(existing, Mapping) else {}
+                    existing_tag = existing.get("source_tag_filmes") if isinstance(existing, Mapping) else None
+                    new_icon = icon or existing_icon or ""
+                    new_target = target_container or existing_target
+                    new_properties = properties or existing_properties or {}
+                    current_tag = existing_tag
                     new_tag = source_tag or current_tag
                     differences: dict[str, Any] = {}
                     if new_categories != existing_categories:
@@ -354,17 +533,17 @@ class _MovieImporter(_BaseImporter):
                             "from": existing_categories,
                             "to": new_categories,
                         }
-                    if (new_icon or "") != (existing.get("stream_icon") or ""):
+                    if (new_icon or "") != (existing_icon or ""):
                         differences["icon"] = {
-                            "from": existing.get("stream_icon"),
+                            "from": existing_icon,
                             "to": new_icon,
                         }
-                    if (new_target or "") != (existing.get("target_container") or ""):
+                    if (new_target or "") != (existing_target or ""):
                         differences["targetContainer"] = {
-                            "from": existing.get("target_container"),
+                            "from": existing_target,
                             "to": new_target,
                         }
-                    if new_properties != (existing.get("movie_properties") or {}):
+                    if new_properties != (existing_properties or {}):
                         differences["propertiesChanged"] = True
                     if (new_tag or "") != (current_tag or ""):
                         differences["sourceTag"] = {
@@ -374,25 +553,50 @@ class _MovieImporter(_BaseImporter):
 
                     bouquet_id_raw = adult_bouquet if is_adult else movies_bouquet
                     bouquet_id = _normalize_int(bouquet_id_raw)
-                    if bouquet_id:
-                        self.repository.append_movie_to_bouquet(bouquet_id, int(existing["id"]))
+                    if bouquet_id and existing_id is not None:
+                        self._with_retry(self.repository.append_movie_to_bouquet, bouquet_id, existing_id)
+                        self._apply_write_throttle()
 
                     status = "skipped"
                     if differences:
-                        self.repository.update_movie_metadata(
-                            int(existing["id"]),
+                        if existing_id is None:
+                            raise RuntimeError("Registro de filme sem identificador")
+                        self._with_retry(
+                            self.repository.update_movie_metadata,
+                            existing_id,
                             category_ids=new_categories,
                             icon=new_icon,
                             target_container=new_target,
                             properties=new_properties,
                             source_tag=new_tag,
                         )
+                        self._apply_write_throttle()
+                        updated_entry = {
+                            "id": existing_id,
+                            "category_ids": new_categories,
+                            "stream_icon": new_icon,
+                            "target_container": new_target,
+                            "movie_properties": new_properties,
+                            "source_tag_filmes": new_tag,
+                        }
+                        self._cache_movie(url, updated_entry)
                         self.updated += 1
                         status = "updated"
                         if new_tag and (new_tag or "") != (current_tag or ""):
                             self.domains[new_tag] += 1
                     else:
                         self.ignored += 1
+                        self._cache_movie(
+                            url,
+                            {
+                                "id": existing_id,
+                                "category_ids": existing_categories,
+                                "stream_icon": existing_icon,
+                                "target_container": existing_target,
+                                "movie_properties": existing_properties,
+                                "source_tag_filmes": current_tag,
+                            },
+                        )
 
                     self.processed += 1
                     self._log(
@@ -401,14 +605,15 @@ class _MovieImporter(_BaseImporter):
                             "status": status,
                             "title": title,
                             "url": url,
-                            "streamId": existing.get("id"),
+                            "streamId": existing_id,
                             "differences": differences,
                         }
                     )
                     self._commit()
                     continue
 
-                stream_id_db = self.repository.insert_movie(
+                stream_id_db = self._with_retry(
+                    self.repository.insert_movie,
                     title=title,
                     category_id=xui_category_id,
                     urls=[url],
@@ -420,7 +625,19 @@ class _MovieImporter(_BaseImporter):
                 bouquet_id_raw = adult_bouquet if is_adult else movies_bouquet
                 bouquet_id = _normalize_int(bouquet_id_raw)
                 if bouquet_id:
-                    self.repository.append_movie_to_bouquet(bouquet_id, stream_id_db)
+                    self._with_retry(self.repository.append_movie_to_bouquet, bouquet_id, stream_id_db)
+                    self._apply_write_throttle()
+
+                self._apply_write_throttle()
+                cached_entry = {
+                    "id": stream_id_db,
+                    "category_ids": [xui_category_id] if xui_category_id is not None else [],
+                    "stream_icon": icon,
+                    "target_container": target_container,
+                    "movie_properties": properties,
+                    "source_tag_filmes": source_tag,
+                }
+                self._cache_movie(url, cached_entry)
 
                 self.inserted += 1
                 self.processed += 1
@@ -482,6 +699,7 @@ class _SeriesImporter(_BaseImporter):
                 series_id = entry.get("series_id") or entry.get("id") or entry.get("stream_id")
                 title = (entry.get("name") or entry.get("title") or "").strip()
                 category_id = str(entry.get("category_id")) if entry.get("category_id") is not None else None
+                category_name = entry.get("category_name")
                 if not series_id or not title:
                     self.processed += 1
                     self.ignored += 1
@@ -493,6 +711,26 @@ class _SeriesImporter(_BaseImporter):
                             "reason": "missing-data",
                         }
                     )
+                    self._commit()
+                    continue
+
+                ignore_info = self._should_ignore("series", title, category_id, category_name)
+                if ignore_info:
+                    self.processed += 1
+                    self.ignored += 1
+                    log_payload = {
+                        "kind": "item",
+                        "status": "ignored",
+                        "title": title,
+                        "reason": f"ignored-{ignore_info['type']}",
+                    }
+                    if category_id:
+                        log_payload["categoryId"] = category_id
+                    if category_name:
+                        log_payload["categoryName"] = category_name
+                    if ignore_info["type"] == "prefix":
+                        log_payload["prefix"] = ignore_info["value"]
+                    self._log(log_payload)
                     self._commit()
                     continue
 
@@ -568,26 +806,29 @@ class _SeriesImporter(_BaseImporter):
 
                 primary_tag = season_counter.most_common(1)[0][0] if season_counter else None
 
-                existing = self.repository.fetch_series(title, primary_tag)
+                existing = self._with_retry(self.repository.fetch_series, title, primary_tag)
                 if existing:
                     series_id_db = int(existing["id"])
                 else:
-                    series_id_db = self.repository.create_series(
+                    series_id_db = self._with_retry(
+                        self.repository.create_series,
                         title=title,
                         category_id=xui_category_id,
                         cover=poster,
                         backdrop=tmdb_payload.get("backdrop"),
                         plot=tmdb_payload.get("overview"),
                         rating=tmdb_payload.get("rating"),
-                        tmdb_language=(self.options.get("tmdb", {}) or {}).get("language", "pt-BR"),
+                        tmdb_language=tmdb_language,
                         source_tag=primary_tag,
                     )
+                    self._apply_write_throttle()
 
-                is_adult_series = _is_adult(title, entry.get("category_name"), category_id, self.options)
+                is_adult_series = _is_adult(title, category_name, category_id, self.options)
                 bouquet_id_raw = adult_bouquet if is_adult_series else series_bouquet
                 bouquet_id = _normalize_int(bouquet_id_raw)
                 if bouquet_id:
-                    self.repository.append_series_to_bouquet(bouquet_id, series_id_db)
+                    self._with_retry(self.repository.append_series_to_bouquet, bouquet_id, series_id_db)
+                    self._apply_write_throttle()
 
                 inserted_episodes = 0
                 updated_episodes = 0
@@ -608,10 +849,20 @@ class _SeriesImporter(_BaseImporter):
                         props = _episode_properties(tmdb_payload, poster, season_number)
                         stream_tag = source_tag_from_url(url)
                         target_container = target_container_from_url(url)
-                        existing_episode = self.repository.episode_url_exists(url)
+                        existing_episode = self._get_cached_episode(url)
                         if existing_episode:
+                            episode_id_raw = existing_episode.get("id") if isinstance(existing_episode, Mapping) else None
+                            try:
+                                existing_episode_id = int(episode_id_raw) if episode_id_raw is not None else None
+                            except (TypeError, ValueError):
+                                existing_episode_id = None
                             existing_categories: list[int] = []
-                            for cid in existing_episode.get("category_ids", []):
+                            category_iterable = (
+                                existing_episode.get("category_ids", [])
+                                if isinstance(existing_episode, Mapping)
+                                else []
+                            )
+                            for cid in category_iterable:
                                 try:
                                     existing_categories.append(int(cid))
                                 except (TypeError, ValueError):
@@ -619,10 +870,26 @@ class _SeriesImporter(_BaseImporter):
                             new_categories = list(existing_categories)
                             if xui_category_id is not None and xui_category_id not in new_categories:
                                 new_categories.append(xui_category_id)
-                            new_icon = poster or existing_episode.get("stream_icon") or ""
-                            new_target = target_container or existing_episode.get("target_container")
-                            new_properties = props or existing_episode.get("movie_properties") or {}
-                            current_tag = existing_episode.get("source_tag")
+                            existing_icon = (
+                                existing_episode.get("stream_icon") if isinstance(existing_episode, Mapping) else ""
+                            )
+                            existing_target = (
+                                existing_episode.get("target_container")
+                                if isinstance(existing_episode, Mapping)
+                                else None
+                            )
+                            existing_properties = (
+                                existing_episode.get("movie_properties")
+                                if isinstance(existing_episode, Mapping)
+                                else {}
+                            )
+                            existing_tag = (
+                                existing_episode.get("source_tag") if isinstance(existing_episode, Mapping) else None
+                            )
+                            new_icon = poster or existing_icon or ""
+                            new_target = target_container or existing_target
+                            new_properties = props or existing_properties or {}
+                            current_tag = existing_tag
                             new_tag = stream_tag or current_tag
                             differences: dict[str, Any] = {}
                             if new_categories != existing_categories:
@@ -630,17 +897,17 @@ class _SeriesImporter(_BaseImporter):
                                     "from": existing_categories,
                                     "to": new_categories,
                                 }
-                            if (new_icon or "") != (existing_episode.get("stream_icon") or ""):
+                            if (new_icon or "") != (existing_icon or ""):
                                 differences["icon"] = {
-                                    "from": existing_episode.get("stream_icon"),
+                                    "from": existing_icon,
                                     "to": new_icon,
                                 }
-                            if (new_target or "") != (existing_episode.get("target_container") or ""):
+                            if (new_target or "") != (existing_target or ""):
                                 differences["targetContainer"] = {
-                                    "from": existing_episode.get("target_container"),
+                                    "from": existing_target,
                                     "to": new_target,
                                 }
-                            if new_properties != (existing_episode.get("movie_properties") or {}):
+                            if new_properties != (existing_properties or {}):
                                 differences["propertiesChanged"] = True
                             if (new_tag or "") != (current_tag or ""):
                                 differences["sourceTag"] = {
@@ -649,14 +916,27 @@ class _SeriesImporter(_BaseImporter):
                                 }
 
                             if differences:
-                                self.repository.update_episode_metadata(
-                                    int(existing_episode["id"]),
+                                if existing_episode_id is None:
+                                    raise RuntimeError("Episódio sem identificador")
+                                self._with_retry(
+                                    self.repository.update_episode_metadata,
+                                    existing_episode_id,
                                     category_ids=new_categories,
                                     icon=new_icon,
                                     target_container=new_target,
                                     properties=new_properties,
                                     source_tag=new_tag,
                                 )
+                                self._apply_write_throttle()
+                                updated_entry = {
+                                    "id": existing_episode_id,
+                                    "category_ids": new_categories,
+                                    "stream_icon": new_icon,
+                                    "target_container": new_target,
+                                    "movie_properties": new_properties,
+                                    "source_tag": new_tag,
+                                }
+                                self._cache_episode(url, updated_entry)
                                 updated_episodes += 1
                                 self.updated += 1
                                 if new_tag and (new_tag or "") != (current_tag or ""):
@@ -664,9 +944,21 @@ class _SeriesImporter(_BaseImporter):
                             else:
                                 skipped_episodes += 1
                                 self.ignored += 1
+                                self._cache_episode(
+                                    url,
+                                    {
+                                        "id": existing_episode_id,
+                                        "category_ids": existing_categories,
+                                        "stream_icon": existing_icon,
+                                        "target_container": existing_target,
+                                        "movie_properties": existing_properties,
+                                        "source_tag": current_tag,
+                                    },
+                                )
                             continue
 
-                        self.repository.insert_episode(
+                        stream_id_episode = self._with_retry(
+                            self.repository.insert_episode,
                             stream_title=title_ep,
                             urls=[url],
                             icon=poster,
@@ -676,6 +968,18 @@ class _SeriesImporter(_BaseImporter):
                             season=season_number,
                             episode=episode_number,
                             source_tag=stream_tag,
+                        )
+                        self._apply_write_throttle()
+                        self._cache_episode(
+                            url,
+                            {
+                                "id": stream_id_episode,
+                                "category_ids": [],
+                                "stream_icon": poster,
+                                "target_container": target_container,
+                                "movie_properties": props,
+                                "source_tag": stream_tag,
+                            },
                         )
                         if stream_tag:
                             self.domains[stream_tag] += 1
@@ -738,6 +1042,7 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
         xtream_options = worker_config.get("options", {}) or {}
         throttle_ms = int(xtream_options.get("throttleMs") or 0)
         retry_opts = xtream_options.get("retry", {}) or {}
+        max_parallel = int(xtream_options.get("maxParallel") or 1)
         xtream_client = XtreamClient(
             base_url=worker_config["xtream_base_url"],
             username=worker_config["xtream_username"],
@@ -746,6 +1051,7 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
             throttle_ms=throttle_ms,
             max_retries=int(retry_opts.get("maxAttempts") or 3),
             backoff_seconds=int(retry_opts.get("backoffSeconds") or 5),
+            max_parallel=max_parallel,
         )
 
         engine = get_engine(tenant_id, XuiCredentials(worker_config["xui_db_uri"]))

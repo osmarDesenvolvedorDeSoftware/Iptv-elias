@@ -27,6 +27,10 @@ _DEFAULT_OPTIONS: dict[str, Any] = {
     },
     "adultCategories": [],
     "adultKeywords": [],
+    "ignore": {
+        "movies": {"categories": [], "prefixes": []},
+        "series": {"categories": [], "prefixes": []},
+    },
     "retry": {
         "enabled": True,
         "maxAttempts": 3,
