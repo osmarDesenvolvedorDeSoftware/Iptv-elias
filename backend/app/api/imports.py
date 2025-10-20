@@ -5,12 +5,12 @@ from http import HTTPStatus
 from typing import Any
 
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import get_jwt_identity, jwt_required
+from flask_jwt_extended import jwt_required
 from sqlalchemy.orm import joinedload
 
 from ..models import Job, JobLog, JobStatus
 from ..services.jobs import enqueue_import
-from .utils import json_error, tenant_from_request
+from .utils import current_identity, json_error, tenant_from_request
 
 bp = Blueprint("imports", __name__)
 
@@ -87,8 +87,11 @@ def run_import(tipo: str):
     if error:
         return error
 
-    identity = get_jwt_identity()
-    job = enqueue_import(tipo=tipo, tenant_id=tenant_id, user_id=identity["user_id"])
+    user_id, _ = current_identity()
+    if user_id is None:
+        return json_error("Sessão inválida para o usuário", HTTPStatus.UNAUTHORIZED)
+
+    job = enqueue_import(tipo=tipo, tenant_id=tenant_id, user_id=user_id)
 
     return (
         jsonify(
