@@ -6,7 +6,7 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 jwt = JWTManager()
-cors = CORS()
+cors = CORS(supports_credentials=True)
 celery_app = Celery(__name__)
 
 
