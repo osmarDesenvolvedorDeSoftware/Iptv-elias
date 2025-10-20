@@ -1,69 +1,42 @@
-"""Importadores Celery portados dos scripts legados."""
+"""Importadores Celery que sincronizam o catálogo diretamente no XUI."""
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 from collections import Counter, defaultdict
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Iterable, Mapping
 
+import requests
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..config import Config
 from ..extensions import celery_app, db
-from ..models import (
-    Bouquet,
-    BouquetItem,
-    Job,
-    JobLog,
-    JobStatus,
-    Stream,
-    StreamEpisode,
-    StreamSeries,
-)
-from ..services import tmdb, bouquets as bouquet_service
-from ..services.importers import (
-    categoria_adulta,
-    dominio_de,
-    limpar_nome,
-    normalize_stream_source,
-    source_tag_from_url,
-    target_container_from_url,
-)
-from ..services.legacy_sources import MovieCandidate, SeriesEpisodeCandidate, iter_movies_from_m3u, iter_series_from_m3u
+from ..models import Job, JobLog, JobStatus
+from ..services.importers import categoria_adulta, dominio_de, source_tag_from_url, target_container_from_url
+from ..services.xui_db import XuiCredentials, XuiRepository, get_engine
+from ..services.xui_integration import get_worker_config
+from ..services.xtream_client import XtreamClient, XtreamError
 
 logger = logging.getLogger(__name__)
 
 _IMPORT_TYPES = {"filmes", "series"}
-_PROGRESS_CHUNK = 10
-_MOVIE_TYPE = 2
-_EPISODE_TYPE = 5
-_DEFAULT_BOUQUETS = {
-    "movies": "Filmes",
-    "series": "Séries",
-    "adult": "Adultos",
-}
-
-_config = Config()
+_LOG_BATCH = 10
+_CONFIG = Config()
 
 
 def _ensure_job(tipo: str, tenant_id: str, user_id: int, job_id: int | None) -> Job:
     job: Job | None = None
     if job_id:
         job = Job.query.filter_by(id=job_id, tenant_id=tenant_id, user_id=user_id).first()
-    if not job:
-        job = Job(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            type=tipo,
-        )
+    if job is None:
+        job = Job(tenant_id=tenant_id, user_id=user_id, type=tipo)
         db.session.add(job)
         db.session.commit()
-    job.type = tipo
     job.status = JobStatus.RUNNING
     job.progress = 0.0
-    job.eta_sec = None
     job.started_at = datetime.utcnow()
     job.finished_at = None
     job.error = None
@@ -72,6 +45,7 @@ def _ensure_job(tipo: str, tenant_id: str, user_id: int, job_id: int | None) -> 
     job.ignored = 0
     job.errors = 0
     job.duration_sec = None
+    job.eta_sec = None
     job.source_tag = None
     job.source_tag_filmes = None
     db.session.commit()
@@ -85,154 +59,204 @@ def _estimate_eta(start_time: datetime, processed: int, total: int) -> int | Non
     if remaining == 0:
         return None
     elapsed = (datetime.utcnow() - start_time).total_seconds()
+    if elapsed <= 0:
+        return None
     avg = elapsed / max(processed, 1)
     return int(max(avg * remaining, 0))
 
 
-def _persist_logs(job: Job, entries: list[dict]) -> None:
-    if not entries:
+def _persist_logs(job: Job, buffer: list[dict[str, Any]]) -> None:
+    if not buffer:
         return
     db.session.add_all(
-        [JobLog(job_id=job.id, content=json.dumps(entry, ensure_ascii=False)) for entry in entries]
+        [JobLog(job_id=job.id, content=json.dumps(entry, ensure_ascii=False)) for entry in buffer]
     )
     db.session.flush()
 
 
-def _ensure_bouquets(tenant_id: str) -> dict[str, Bouquet]:
-    mapping: dict[str, Bouquet] = {}
-    for key, name in _DEFAULT_BOUQUETS.items():
-        bouquet = Bouquet.query.filter_by(tenant_id=tenant_id, name=name).first()
-        if not bouquet:
-            bouquet = Bouquet(tenant_id=tenant_id, name=name)
-            db.session.add(bouquet)
-            db.session.flush()
-        mapping[key] = bouquet
-    return mapping
+def _build_tmdb_params(options: Mapping[str, Any]) -> dict[str, Any] | None:
+    tmdb_opts = options.get("tmdb", {}) if isinstance(options, Mapping) else {}
+    enabled = bool(tmdb_opts.get("enabled"))
+    api_key = tmdb_opts.get("apiKey") or _CONFIG.TMDB_API_KEY
+    if not enabled or not api_key:
+        return None
+    return {
+        "api_key": api_key,
+        "language": tmdb_opts.get("language") or _CONFIG.TMDB_LANGUAGE,
+        "region": tmdb_opts.get("region") or _CONFIG.TMDB_REGION,
+    }
 
 
-def _upsert_bouquet_item(
-    bouquet: Bouquet,
-    content_id: str,
-    item_type: str,
-    title: str,
-    metadata: dict,
-    source_tag: Optional[str] = None,
-    source_tag_filmes: Optional[str] = None,
-) -> None:
-    existing = BouquetItem.query.filter_by(bouquet_id=bouquet.id, content_id=content_id).first()
-    if existing:
-        existing.title = title
-        existing.type = item_type
-        existing.metadata_json = metadata
-        existing.source_tag = source_tag
-        existing.source_tag_filmes = source_tag_filmes
-        return
-
-    db.session.add(
-        BouquetItem(
-            bouquet_id=bouquet.id,
-            content_id=content_id,
-            type=item_type,
-            title=title,
-            metadata_json=metadata,
-            source_tag=source_tag,
-            source_tag_filmes=source_tag_filmes,
+def _fetch_tmdb_movie(title: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
+    try:
+        response = requests.get(
+            "https://api.themoviedb.org/3/search/movie",
+            params={"query": title, **params, "page": 1, "include_adult": True},
+            timeout=20,
         )
-    )
+        response.raise_for_status()
+        payload = response.json()
+        results = payload.get("results") or []
+        if not results:
+            return {}
+        movie = results[0]
+        return {
+            "overview": movie.get("overview"),
+            "poster": movie.get("poster_path"),
+            "backdrop": movie.get("backdrop_path"),
+            "genres": movie.get("genre_ids", []),
+            "rating": movie.get("vote_average"),
+            "release_date": movie.get("release_date"),
+        }
+    except requests.RequestException as exc:  # pragma: no cover - dependência externa
+        logger.warning("TMDb indisponível para filme %s: %s", title, exc)
+        return {}
 
 
-def _movie_metadata_from_tmdb(candidate: MovieCandidate) -> tuple[Optional[int], dict]:
+def _fetch_tmdb_series(title: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
     try:
-        details: dict | None = None
-        tmdb_id = candidate.tmdb_id
-        query = limpar_nome(candidate.title)
-        if tmdb_id:
-            details = tmdb.fetch_movie_details(tmdb_id)
-        else:
-            search = tmdb.search_movies(query)
-            results = search.get("results") or []
-            if results:
-                tmdb_id = results[0].get("id")
-                if tmdb_id:
-                    details = tmdb.fetch_movie_details(tmdb_id)
-        if not details:
-            return None, {}
-        metadata: dict = {}
-        metadata["year"] = (details.get("release_date") or "").split("-", 1)[0] or None
-        genres = details.get("genres") or []
-        metadata["genres"] = [genre.get("name") for genre in genres if genre.get("name")]
-        metadata["poster"] = details.get("poster_path")
-        metadata["backdrop"] = details.get("backdrop_path")
-        metadata["overview"] = details.get("overview")
-        metadata["rating"] = details.get("vote_average")
-        metadata["runtime"] = details.get("runtime")
-        return tmdb_id, metadata
-    except Exception as exc:  # pragma: no cover - defensivo
-        logger.warning("TMDb indisponível para %s: %s", candidate.title, exc)
-        return None, {}
+        response = requests.get(
+            "https://api.themoviedb.org/3/search/tv",
+            params={"query": title, **params, "page": 1},
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        results = payload.get("results") or []
+        if not results:
+            return {}
+        series = results[0]
+        return {
+            "overview": series.get("overview"),
+            "poster": series.get("poster_path"),
+            "backdrop": series.get("backdrop_path"),
+            "rating": series.get("vote_average"),
+        }
+    except requests.RequestException as exc:  # pragma: no cover - dependência externa
+        logger.warning("TMDb indisponível para série %s: %s", title, exc)
+        return {}
 
 
-def _series_metadata_from_tmdb(series_title: str, tmdb_id: Optional[int]) -> tuple[Optional[int], dict]:
+def _movie_properties(title: str, tmdb_payload: Mapping[str, Any], fallback_icon: str | None) -> dict[str, Any]:
+    poster_path = tmdb_payload.get("poster")
+    if poster_path and not poster_path.startswith("http"):
+        poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+    else:
+        poster_url = poster_path or fallback_icon or ""
+    backdrop_path = tmdb_payload.get("backdrop")
+    if backdrop_path and not backdrop_path.startswith("http"):
+        backdrop_url = f"https://image.tmdb.org/t/p/w780{backdrop_path}"
+    else:
+        backdrop_url = backdrop_path or poster_url
+    return {
+        "name": title,
+        "o_name": title,
+        "cover_big": poster_url,
+        "movie_image": poster_url,
+        "release_date": tmdb_payload.get("release_date") or "",
+        "youtube_trailer": "",
+        "director": "",
+        "actors": "",
+        "cast": "",
+        "description": "",
+        "plot": tmdb_payload.get("overview") or "",
+        "genre": ", ".join(map(str, tmdb_payload.get("genres", []))) if tmdb_payload.get("genres") else "",
+        "backdrop_path": [backdrop_url] if backdrop_url else [],
+        "duration_secs": 0,
+        "duration": "00:00:00",
+        "video": [],
+        "audio": [],
+        "bitrate": 0,
+        "rating": tmdb_payload.get("rating") or "",
+        "tmdb_id": "",
+        "age": "",
+        "mpaa_rating": "",
+        "rating_count_kinopoisk": 0,
+        "country": "",
+        "kinopoisk_url": "",
+    }
+
+
+def _episode_properties(tmdb_payload: Mapping[str, Any], poster: str | None, season: int) -> dict[str, Any]:
+    return {
+        "release_date": "",
+        "plot": tmdb_payload.get("overview") or "",
+        "duration_secs": 0,
+        "duration": "00:00:00",
+        "movie_image": poster or "",
+        "video": [],
+        "audio": [],
+        "bitrate": 0,
+        "rating": tmdb_payload.get("rating") or "",
+        "season": str(season),
+        "tmdb_id": "",
+        "genre": "",
+        "actors": "",
+        "youtube_trailer": "",
+    }
+
+
+def _is_adult(title: str, category_name: str | None, category_id: str | None, options: Mapping[str, Any]) -> bool:
+    keywords = {kw.lower() for kw in options.get("adultKeywords", []) if isinstance(kw, str)}
+    categories = {str(cid) for cid in options.get("adultCategories", [])}
+    if category_id and str(category_id) in categories:
+        return True
+    if category_name and any(keyword in category_name.lower() for keyword in keywords):
+        return True
+    return categoria_adulta(title) or categoria_adulta(category_name)
+
+
+def _normalize_int(value: Any) -> int | None:
+    if value is None:
+        return None
     try:
-        details: dict | None = None
-        query = limpar_nome(series_title)
-        identifier = tmdb_id
-        if identifier:
-            details = tmdb.fetch_series_details(identifier)
-        else:
-            search = tmdb.search_series(query)
-            results = search.get("results") or []
-            if results:
-                identifier = results[0].get("id")
-                if identifier:
-                    details = tmdb.fetch_series_details(identifier)
-        if not details:
-            return None, {}
-        metadata: dict = {}
-        metadata["genres"] = [genre.get("name") for genre in details.get("genres", []) if genre.get("name")]
-        metadata["poster"] = details.get("poster_path")
-        metadata["backdrop"] = details.get("backdrop_path")
-        metadata["overview"] = details.get("overview")
-        metadata["rating"] = details.get("vote_average")
-        metadata["seasons"] = details.get("number_of_seasons")
-        return identifier, metadata
-    except Exception as exc:  # pragma: no cover - defensivo
-        logger.warning("TMDb indisponível para série %s: %s", series_title, exc)
-        return None, {}
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 class _BaseImporter:
-    def __init__(self, job: Job, tenant_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        job: Job,
+        tenant_id: str,
+        repository: XuiRepository,
+        xtream: XtreamClient,
+        options: Mapping[str, Any],
+    ) -> None:
         self.job = job
         self.tenant_id = tenant_id
+        self.repository = repository
+        self.xtream = xtream
+        self.options = options
         self.start_time = datetime.utcnow()
-        self.logs_buffer: list[dict] = []
+        self.buffer: list[dict[str, Any]] = []
         self.total_items = 0
         self.processed = 0
         self.inserted = 0
-        self.updated = 0
         self.ignored = 0
         self.errors = 0
+        self.domains: Counter[str] = Counter()
 
-    def _persist_if_needed(self) -> None:
+    def _log(self, payload: Mapping[str, Any]) -> None:
+        self.buffer.append(dict(payload))
+        if len(self.buffer) >= _LOG_BATCH:
+            _persist_logs(self.job, self.buffer)
+            self.buffer.clear()
+
+    def _commit(self) -> None:
         self.job.progress = (self.processed / self.total_items) if self.total_items else 1.0
         self.job.inserted = self.inserted
-        self.job.updated = self.updated
         self.job.ignored = self.ignored
         self.job.errors = self.errors
         self.job.eta_sec = _estimate_eta(self.start_time, self.processed, self.total_items)
-        if len(self.logs_buffer) >= _PROGRESS_CHUNK:
-            _persist_logs(self.job, self.logs_buffer)
-            self.logs_buffer.clear()
         db.session.commit()
 
-    def _append_log(self, payload: dict) -> None:
-        self.logs_buffer.append(payload)
-
     def finalize(self) -> None:
-        if self.logs_buffer:
-            _persist_logs(self.job, self.logs_buffer)
-            self.logs_buffer.clear()
+        if self.buffer:
+            _persist_logs(self.job, self.buffer)
+            self.buffer.clear()
         db.session.commit()
 
     def execute(self) -> None:
@@ -241,324 +265,366 @@ class _BaseImporter:
 
 class _MovieImporter(_BaseImporter):
     def execute(self) -> None:
-        candidates = list(iter_movies_from_m3u(_config.LEGACY_MOVIES_M3U))
-        self.total_items = len(candidates)
-        bouquets = _ensure_bouquets(self.tenant_id)
-        domains: list[str] = []
+        data = self.xtream.vod_streams()
+        limit = _normalize_int(self.options.get("limitItems"))
+        if limit and limit > 0:
+            data = data[:limit]
+        mapping = (self.options.get("categoryMapping", {}) or {}).get("movies", {})
+        tmdb_params = _build_tmdb_params(self.options)
+        bouquets = self.options.get("bouquets", {}) or {}
+        movies_bouquet = bouquets.get("movies")
+        adult_bouquet = bouquets.get("adult")
 
-        for candidate in candidates:
-            urls = normalize_stream_source(candidate.urls)
-            if not urls:
-                self.processed += 1
-                self.ignored += 1
-                self._append_log(
-                    {
-                        "kind": "item",
-                        "status": "ignored",
-                        "title": candidate.title,
-                        "origin": candidate.origin,
-                        "reason": "empty-url",
-                    }
-                )
-                self._persist_if_needed()
-                continue
+        self.total_items = len(data)
+        categories_by_id = {str(cat.get("category_id")): cat.get("category_name") for cat in self.xtream.vod_categories()}
 
-            primary_url = urls[0]
-            source_tag = source_tag_from_url(primary_url)
-            source_domain = dominio_de(primary_url)
-            is_adult = categoria_adulta(candidate.title) or categoria_adulta(candidate.category)
-            existing = Stream.query.filter_by(tenant_id=self.tenant_id, primary_url=primary_url).first()
-            if existing:
-                self.processed += 1
-                self.ignored += 1
-                self._append_log(
-                    {
-                        "kind": "item",
-                        "status": "duplicate",
-                        "title": candidate.title,
-                        "category": candidate.category,
-                        "origin": candidate.origin,
-                        "url": primary_url,
-                        "adult": existing.is_adult or is_adult,
-                        "source_domain": source_domain,
-                        "source_tag_filmes": existing.source_tag_filmes,
-                    }
-                )
-                self._persist_if_needed()
-                continue
+        for entry in data:
+            try:
+                stream_id = entry.get("stream_id")
+                title = (entry.get("name") or "").strip()
+                category_id = str(entry.get("category_id")) if entry.get("category_id") is not None else None
+                category_name = categories_by_id.get(category_id) or entry.get("category_name")
+                icon = entry.get("stream_icon")
+                extension = (entry.get("container_extension") or "mp4").strip()
+                if not title or not stream_id:
+                    self.processed += 1
+                    self.ignored += 1
+                    self._log(
+                        {
+                            "kind": "item",
+                            "status": "ignored",
+                            "title": title or str(stream_id),
+                            "reason": "missing-data",
+                        }
+                    )
+                    self._commit()
+                    continue
 
-            tmdb_id, metadata = _movie_metadata_from_tmdb(candidate)
-            metadata.setdefault("genres", [])
-            metadata.setdefault("year", None)
-            metadata.setdefault("poster", None)
-            metadata.setdefault("overview", None)
-            metadata.setdefault("runtime", None)
-            metadata["source_domain"] = source_domain
+                xui_category = mapping.get(str(category_id)) if isinstance(mapping, dict) else None
+                xui_category_id = _normalize_int(xui_category)
+                if xui_category_id is None:
+                    self.processed += 1
+                    self.ignored += 1
+                    self._log(
+                        {
+                            "kind": "item",
+                            "status": "ignored",
+                            "title": title,
+                            "reason": "missing-category-mapping",
+                            "categoryId": category_id,
+                        }
+                    )
+                    self._commit()
+                    continue
 
-            stream = Stream(
-                tenant_id=self.tenant_id,
-                type=_MOVIE_TYPE,
-                title=candidate.title,
-                category=candidate.category,
-                group_title=candidate.category,
-                is_adult=is_adult,
-                stream_source=urls,
-                primary_url=primary_url,
-                target_container=target_container_from_url(primary_url),
-                source_tag_filmes=source_tag,
-                source_tag=source_tag,
-                tmdb_id=tmdb_id,
-                movie_properties=metadata,
-            )
-            db.session.add(stream)
-            db.session.flush()
+                url = f"{self.xtream.base_url}/movie/{self.xtream.username}/{self.xtream.password}/{stream_id}.{extension}"
+                duplicate = self.repository.movie_url_exists(url)
+                if duplicate:
+                    self.processed += 1
+                    self.ignored += 1
+                    self._log(
+                        {
+                            "kind": "item",
+                            "status": "duplicate",
+                            "title": title,
+                            "url": url,
+                            "existingSourceTag": duplicate.get("source_tag_filmes"),
+                        }
+                    )
+                    self._commit()
+                    continue
 
-            content_id = f"f_{stream.id}"
-            bouquet_metadata = {
-                "year": metadata.get("year"),
-                "genres": metadata.get("genres", []),
-                "poster": metadata.get("poster"),
-                "overview": metadata.get("overview"),
-                "runtime": metadata.get("runtime"),
-                "adult": is_adult,
-                "source_domain": source_domain,
-            }
-            _upsert_bouquet_item(
-                bouquets["adult" if is_adult else "movies"],
-                content_id,
-                "movie",
-                candidate.title,
-                bouquet_metadata,
-                source_tag=source_tag,
-                source_tag_filmes=source_tag,
-            )
-            if is_adult:
-                _upsert_bouquet_item(
-                    bouquets["movies"],
-                    content_id,
-                    "movie",
-                    candidate.title,
-                    bouquet_metadata,
+                tmdb_payload = _fetch_tmdb_movie(title, tmdb_params) if tmdb_params else {}
+                properties = _movie_properties(title, tmdb_payload, icon)
+                is_adult = _is_adult(title, category_name, category_id, self.options)
+                target_container = target_container_from_url(url)
+                source_tag = source_tag_from_url(url)
+                stream_id_db = self.repository.insert_movie(
+                    title=title,
+                    category_id=xui_category_id,
+                    urls=[url],
+                    icon=icon,
+                    target_container=target_container,
+                    properties=properties,
                     source_tag=source_tag,
-                    source_tag_filmes=source_tag,
                 )
+                bouquet_id_raw = adult_bouquet if is_adult else movies_bouquet
+                bouquet_id = _normalize_int(bouquet_id_raw)
+                if bouquet_id:
+                    self.repository.append_movie_to_bouquet(bouquet_id, stream_id_db)
 
-            self.inserted += 1
-            self.processed += 1
-            domains.append(source_tag or "")
-            self._append_log(
-                {
-                    "kind": "item",
-                    "status": "inserted",
-                    "title": candidate.title,
-                    "category": candidate.category,
-                    "origin": candidate.origin,
-                    "url": primary_url,
-                    "adult": is_adult,
-                    "source_tag_filmes": source_tag,
-                    "source_domain": source_domain,
-                    "tmdb_id": tmdb_id,
-                }
-            )
-            self._persist_if_needed()
+                self.inserted += 1
+                self.processed += 1
+                source_domain = dominio_de(url) or ""
+                if source_tag:
+                    self.domains[source_tag] += 1
+                self._log(
+                    {
+                        "kind": "item",
+                        "status": "inserted",
+                        "title": title,
+                        "url": url,
+                        "categoryId": category_id,
+                        "xuiCategoryId": xui_category_id,
+                        "adult": is_adult,
+                        "sourceTag": source_tag,
+                        "sourceDomain": source_domain,
+                        "streamId": stream_id_db,
+                    }
+                )
+                self._commit()
+            except Exception as exc:  # pragma: no cover - defensivo
+                logger.exception("Falha ao importar filme %s: %s", entry.get("name"), exc)
+                self.processed += 1
+                self.errors += 1
+                self._log(
+                    {
+                        "kind": "item",
+                        "status": "error",
+                        "title": entry.get("name") or entry.get("stream_id"),
+                        "reason": str(exc),
+                    }
+                )
+                self._commit()
 
-        # Definir tag do job pelas origens mais frequentes
-        if domains:
-            domain_counter = Counter(filter(None, domains))
-            if domain_counter:
-                tag = domain_counter.most_common(1)[0][0]
-                self.job.source_tag_filmes = tag
-                self.job.source_tag = tag
-                db.session.commit()
-
-        bouquet_service.invalidate_catalog_cache(self.tenant_id)
+        if self.domains:
+            most_common = self.domains.most_common(1)[0][0]
+            self.job.source_tag_filmes = most_common
+            self.job.source_tag = most_common
+            db.session.commit()
 
 
 class _SeriesImporter(_BaseImporter):
     def execute(self) -> None:
-        candidates = list(iter_series_from_m3u(_config.LEGACY_SERIES_M3U))
-        self.total_items = len(candidates)
-        bouquets = _ensure_bouquets(self.tenant_id)
-        series_cache: dict[tuple[str, Optional[str]], StreamSeries] = {}
+        series_list = self.xtream.series()
+        limit = _normalize_int(self.options.get("limitItems"))
+        if limit and limit > 0:
+            series_list = series_list[:limit]
+        mapping = (self.options.get("categoryMapping", {}) or {}).get("series", {})
+        bouquets = self.options.get("bouquets", {}) or {}
+        series_bouquet = bouquets.get("series")
+        adult_bouquet = bouquets.get("adult")
+        tmdb_params = _build_tmdb_params(self.options)
 
-        episodes_by_series: dict[tuple[str, Optional[str]], list[SeriesEpisodeCandidate]] = defaultdict(list)
-        job_domains: list[str] = []
-        for candidate in candidates:
-            urls = normalize_stream_source(candidate.urls)
-            if not urls:
-                self.processed += 1
-                self.ignored += 1
-                self._append_log(
-                    {
-                        "kind": "item",
-                        "status": "ignored",
-                        "title": candidate.title,
-                        "origin": candidate.origin,
-                        "reason": "empty-url",
-                    }
-                )
-                self._persist_if_needed()
-                continue
-            tag = source_tag_from_url(urls[0])
-            key = (limpar_nome(candidate.title_base) or candidate.title_base, tag)
-            episodes_by_series[key].append(candidate)
+        self.total_items = len(series_list)
 
-        for key, episodes in episodes_by_series.items():
-            title_base, source_tag = key
-            first_episode = episodes[0]
-            normalized_title = limpar_nome(first_episode.title_base) or first_episode.title_base
-            existing_series = StreamSeries.query.filter_by(
-                tenant_id=self.tenant_id,
-                title_base=title_base,
-                source_tag=source_tag,
-            ).first()
-            if not existing_series and source_tag:
-                existing_series = StreamSeries.query.filter_by(
-                    tenant_id=self.tenant_id,
-                    title_base=title_base,
-                    source_tag=None,
-                ).first()
-                if existing_series:
-                    existing_series.source_tag = source_tag
-            if not existing_series:
-                tmdb_id, metadata = _series_metadata_from_tmdb(normalized_title, first_episode.tmdb_id)
-                series_is_adult = categoria_adulta(first_episode.title) or categoria_adulta(first_episode.category)
-                existing_series = StreamSeries(
-                    tenant_id=self.tenant_id,
-                    title=normalized_title,
-                    title_base=title_base,
-                    source_tag=source_tag,
-                    tmdb_id=tmdb_id,
-                    overview=metadata.get("overview"),
-                    poster=metadata.get("poster"),
-                    backdrop=metadata.get("backdrop"),
-                    rating=metadata.get("rating"),
-                    genres=metadata.get("genres"),
-                    seasons=metadata.get("seasons"),
-                    is_adult=series_is_adult,
-                )
-                db.session.add(existing_series)
-                db.session.flush()
-            series_cache[key] = existing_series
-
-            seasons_seen: set[int] = set()
-            domain_counter: Counter[str] = Counter()
-
-            for episode in episodes:
-                urls = normalize_stream_source(episode.urls)
-                primary_url = urls[0]
-                stream_tag = source_tag_from_url(primary_url) or "unknown"
-                domain_counter[stream_tag] += 1
-                seasons_seen.add(episode.season)
-                is_adult = categoria_adulta(episode.title) or categoria_adulta(episode.category)
-                existing_stream = Stream.query.filter_by(
-                    tenant_id=self.tenant_id,
-                    primary_url=primary_url,
-                ).first()
-                if existing_stream:
+        for entry in series_list:
+            try:
+                series_id = entry.get("series_id") or entry.get("id") or entry.get("stream_id")
+                title = (entry.get("name") or entry.get("title") or "").strip()
+                category_id = str(entry.get("category_id")) if entry.get("category_id") is not None else None
+                if not series_id or not title:
                     self.processed += 1
                     self.ignored += 1
-                    self._append_log(
+                    self._log(
                         {
                             "kind": "item",
-                            "status": "duplicate",
-                            "title": episode.title,
-                            "series": normalized_title,
-                            "origin": episode.origin,
-                            "url": primary_url,
-                            "adult": existing_stream.is_adult or is_adult,
-                            "source_tag": existing_stream.source_tag,
+                            "status": "ignored",
+                            "title": title or str(series_id),
+                            "reason": "missing-data",
                         }
                     )
-                    self._persist_if_needed()
+                    self._commit()
                     continue
 
-                stream = Stream(
-                    tenant_id=self.tenant_id,
-                    type=_EPISODE_TYPE,
-                    title=episode.title,
-                    category=episode.category,
-                    group_title=episode.category,
-                    is_adult=is_adult,
-                    stream_source=urls,
-                    primary_url=primary_url,
-                    target_container=target_container_from_url(primary_url),
-                    source_tag=None if stream_tag == "unknown" else stream_tag,
-                )
-                db.session.add(stream)
-                db.session.flush()
-
-                db.session.add(
-                    StreamEpisode(
-                        tenant_id=self.tenant_id,
-                        stream_id=stream.id,
-                        series_id=existing_series.id,
-                        season=episode.season,
-                        episode=episode.episode,
-                        title=episode.title,
+                xui_category = mapping.get(str(category_id)) if isinstance(mapping, dict) else None
+                xui_category_id = _normalize_int(xui_category)
+                if xui_category_id is None:
+                    self.processed += 1
+                    self.ignored += 1
+                    self._log(
+                        {
+                            "kind": "item",
+                            "status": "ignored",
+                            "title": title,
+                            "reason": "missing-category-mapping",
+                            "categoryId": category_id,
+                        }
                     )
-                )
+                    self._commit()
+                    continue
 
-                self.inserted += 1
+                try:
+                    details = self.xtream.series_info(series_id)
+                except XtreamError as exc:
+                    self.processed += 1
+                    self.errors += 1
+                    self._log(
+                        {
+                            "kind": "item",
+                            "status": "error",
+                            "title": title,
+                            "reason": str(exc),
+                        }
+                    )
+                    self._commit()
+                    continue
+
+                episodes_payload = details.get("episodes") or {}
+                if not isinstance(episodes_payload, dict):
+                    episodes_payload = {}
+
+                tmdb_payload = _fetch_tmdb_series(title, tmdb_params) if tmdb_params else {}
+                poster = entry.get("cover") or entry.get("series_cover") or entry.get("cover_big")
+
+                first_episode_url = None
+                season_counter: Counter[str] = Counter()
+                for season_key, episodes in episodes_payload.items():
+                    if not isinstance(episodes, list):
+                        continue
+                    for ep in episodes:
+                        info = ep.get("info") or {}
+                        episode_id = ep.get("id")
+                        if not episode_id:
+                            continue
+                        ext = (ep.get("container_extension") or "mp4").strip()
+                        url = f"{self.xtream.base_url}/series/{self.xtream.username}/{self.xtream.password}/{episode_id}.{ext}"
+                        first_episode_url = first_episode_url or url
+                        tag = source_tag_from_url(url)
+                        if tag:
+                            season_counter[tag] += 1
+                if not first_episode_url:
+                    self.processed += 1
+                    self.ignored += 1
+                    self._log(
+                        {
+                            "kind": "item",
+                            "status": "ignored",
+                            "title": title,
+                            "reason": "no-episodes",
+                        }
+                    )
+                    self._commit()
+                    continue
+
+                primary_tag = season_counter.most_common(1)[0][0] if season_counter else None
+
+                existing = self.repository.fetch_series(title, primary_tag)
+                if existing:
+                    series_id_db = int(existing["id"])
+                else:
+                    series_id_db = self.repository.create_series(
+                        title=title,
+                        category_id=xui_category_id,
+                        cover=poster,
+                        backdrop=tmdb_payload.get("backdrop"),
+                        plot=tmdb_payload.get("overview"),
+                        rating=tmdb_payload.get("rating"),
+                        tmdb_language=(self.options.get("tmdb", {}) or {}).get("language", "pt-BR"),
+                        source_tag=primary_tag,
+                    )
+
+                is_adult_series = _is_adult(title, entry.get("category_name"), category_id, self.options)
+                bouquet_id_raw = adult_bouquet if is_adult_series else series_bouquet
+                bouquet_id = _normalize_int(bouquet_id_raw)
+                if bouquet_id:
+                    self.repository.append_series_to_bouquet(bouquet_id, series_id_db)
+
+                inserted_episodes = 0
+                duplicate_episodes = 0
+                for season_key, episodes in episodes_payload.items():
+                    if not isinstance(episodes, list):
+                        continue
+                    for ep in episodes:
+                        episode_id = ep.get("id")
+                        if not episode_id:
+                            continue
+                        info = ep.get("info") or {}
+                        ext = (ep.get("container_extension") or "mp4").strip()
+                        season_number = int(info.get("season") or season_key or 0)
+                        episode_number = int(info.get("episode_num") or ep.get("episode_num") or 0)
+                        title_ep = ep.get("title") or f"{title} S{season_number:02d}E{episode_number:02d}"
+                        url = f"{self.xtream.base_url}/series/{self.xtream.username}/{self.xtream.password}/{episode_id}.{ext}"
+                        if self.repository.episode_url_exists(url):
+                            duplicate_episodes += 1
+                            continue
+                        props = _episode_properties(tmdb_payload, poster, season_number)
+                        stream_tag = source_tag_from_url(url)
+                        target_container = target_container_from_url(url)
+                        self.repository.insert_episode(
+                            stream_title=title_ep,
+                            urls=[url],
+                            icon=poster,
+                            target_container=target_container,
+                            properties=props,
+                            series_id=series_id_db,
+                            season=season_number,
+                            episode=episode_number,
+                            source_tag=stream_tag,
+                        )
+                        if stream_tag:
+                            self.domains[stream_tag] += 1
+                        inserted_episodes += 1
+
+                self.inserted += inserted_episodes
                 self.processed += 1
-                self._append_log(
+                if inserted_episodes == 0:
+                    self.ignored += 1
+                if duplicate_episodes:
+                    self.ignored += duplicate_episodes
+                self._log(
                     {
                         "kind": "item",
-                        "status": "inserted",
-                        "title": episode.title,
-                        "series": normalized_title,
-                        "season": episode.season,
-                        "episode": episode.episode,
-                        "origin": episode.origin,
-                        "url": primary_url,
-                        "adult": is_adult,
-                        "source_tag": stream.source_tag,
+                        "status": "processed",
+                        "title": title,
+                        "episodesInserted": inserted_episodes,
+                        "episodesDuplicate": duplicate_episodes,
+                        "seriesId": series_id_db,
+                        "sourceTag": primary_tag,
                     }
                 )
-                self._persist_if_needed()
-
-            if existing_series:
-                if domain_counter:
-                    common_tag, _count = domain_counter.most_common(1)[0]
-                    existing_series.source_tag = common_tag if common_tag != "unknown" else existing_series.source_tag
-                    if common_tag != "unknown":
-                        job_domains.append(common_tag)
-                existing_series.is_adult = existing_series.is_adult or categoria_adulta(first_episode.title) or categoria_adulta(first_episode.category)
-                existing_series.seasons = max(existing_series.seasons or 0, len(seasons_seen))
-                db.session.commit()
-
-                metadata = {
-                    "genres": existing_series.genres or [],
-                    "poster": existing_series.poster,
-                    "overview": existing_series.overview,
-                    "seasons": existing_series.seasons,
-                    "adult": existing_series.is_adult,
-                }
-                _upsert_bouquet_item(
-                    bouquets["adult" if existing_series.is_adult else "series"],
-                    f"s_{existing_series.id}",
-                    "series",
-                    existing_series.title,
-                    metadata,
-                    source_tag=existing_series.source_tag,
+                self._commit()
+            except Exception as exc:  # pragma: no cover - defensivo
+                logger.exception("Falha ao importar série %s: %s", entry.get("name"), exc)
+                self.processed += 1
+                self.errors += 1
+                self._log(
+                    {
+                        "kind": "item",
+                        "status": "error",
+                        "title": entry.get("name") or entry.get("series_id"),
+                        "reason": str(exc),
+                    }
                 )
-                if existing_series.is_adult:
-                    _upsert_bouquet_item(
-                        bouquets["series"],
-                        f"s_{existing_series.id}",
-                        "series",
-                        existing_series.title,
-                        metadata,
-                        source_tag=existing_series.source_tag,
-                    )
+                self._commit()
 
-        if job_domains:
-            domain_counter = Counter(filter(None, job_domains))
-            if domain_counter:
-                self.job.source_tag = domain_counter.most_common(1)[0][0]
-                db.session.commit()
+        if self.domains:
+            most_common = self.domains.most_common(1)[0][0]
+            self.job.source_tag = most_common
+            db.session.commit()
 
-        bouquet_service.invalidate_catalog_cache(self.tenant_id)
+
+def _build_importer(tipo: str, job: Job, tenant_id: str) -> tuple[_BaseImporter, XtreamClient]:
+    worker_config = get_worker_config(tenant_id)
+    if not worker_config.get("xui_db_uri"):
+        raise RuntimeError("xui_db_uri não configurado")
+    if not worker_config.get("xtream_base_url"):
+        raise RuntimeError("xtream_base_url não configurado")
+    if not worker_config.get("xtream_username") or not worker_config.get("xtream_password"):
+        raise RuntimeError("Credenciais da API Xtream não configuradas")
+
+    xtream_options = worker_config.get("options", {}) or {}
+    throttle_ms = int(xtream_options.get("throttleMs") or 0)
+    retry_opts = xtream_options.get("retry", {}) or {}
+    xtream_client = XtreamClient(
+        base_url=worker_config["xtream_base_url"],
+        username=worker_config["xtream_username"],
+        password=worker_config["xtream_password"],
+        timeout=30,
+        throttle_ms=throttle_ms,
+        max_retries=int(retry_opts.get("maxAttempts") or 3),
+        backoff_seconds=int(retry_opts.get("backoffSeconds") or 5),
+    )
+
+    engine = get_engine(tenant_id, XuiCredentials(worker_config["xui_db_uri"]))
+    repository = XuiRepository(engine)
+    repository.ensure_compatibility()
+
+    if tipo == "filmes":
+        importer = _MovieImporter(job=job, tenant_id=tenant_id, repository=repository, xtream=xtream_client, options=xtream_options)
+    else:
+        importer = _SeriesImporter(job=job, tenant_id=tenant_id, repository=repository, xtream=xtream_client, options=xtream_options)
+    return importer, xtream_client
 
 
 @celery_app.task(name="tasks.run_import")
@@ -568,15 +634,9 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
         return
 
     job = _ensure_job(tipo=tipo, tenant_id=tenant_id, user_id=user_id, job_id=job_id)
-    importer_cls: Callable[[Job, str], _BaseImporter]
-    if tipo == "filmes":
-        importer_cls = _MovieImporter
-    else:
-        importer_cls = _SeriesImporter
-
-    importer = importer_cls(job, tenant_id)
 
     try:
+        importer, _ = _build_importer(tipo, job, tenant_id)
         importer.execute()
         importer.finalize()
 
@@ -585,16 +645,15 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
         job.finished_at = datetime.utcnow()
         job.duration_sec = int((job.finished_at - job.started_at).total_seconds()) if job.started_at else None
         job.inserted = importer.inserted
-        job.updated = importer.updated
         job.ignored = importer.ignored
         job.errors = importer.errors
+        job.updated = 0
         job.eta_sec = None
 
         summary = {
             "kind": "summary",
             "totals": {
                 "inserted": importer.inserted,
-                "updated": importer.updated,
                 "ignored": importer.ignored,
                 "errors": importer.errors,
             },
@@ -603,33 +662,40 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
         db.session.add(JobLog(job_id=job.id, content=json.dumps(summary, ensure_ascii=False)))
         db.session.commit()
 
-    except Exception as exc:  # pragma: no cover - defensivo
+    except (XtreamError, RuntimeError, SQLAlchemyError, requests.RequestException) as exc:
         logger.exception("Importação %s falhou: %s", tipo, exc)
         db.session.rollback()
-        try:
-            job = Job.query.get(job.id)
-            if job:
-                job.status = JobStatus.FAILED
-                job.finished_at = datetime.utcnow()
-                job.duration_sec = (
-                    int((job.finished_at - job.started_at).total_seconds()) if job.started_at else None
+        job = Job.query.get(job.id)
+        if job:
+            job.status = JobStatus.FAILED
+            job.finished_at = datetime.utcnow()
+            job.duration_sec = int((job.finished_at - job.started_at).total_seconds()) if job.started_at else None
+            job.error = str(exc)
+            job.eta_sec = None
+            db.session.add(
+                JobLog(
+                    job_id=job.id,
+                    content=json.dumps({"kind": "error", "message": str(exc)}, ensure_ascii=False),
                 )
-                job.errors = importer.errors + 1
-                job.error = str(exc)
-                job.eta_sec = None
-                db.session.add(
-                    JobLog(
-                        job_id=job.id,
-                        content=json.dumps(
-                            {
-                                "kind": "error",
-                                "message": str(exc),
-                            },
-                            ensure_ascii=False,
-                        ),
-                    )
+            )
+            db.session.commit()
+        raise
+
+    except Exception as exc:  # pragma: no cover - fallback para erros inesperados
+        logger.exception("Erro inesperado durante importação %s: %s", tipo, exc)
+        db.session.rollback()
+        job = Job.query.get(job.id)
+        if job:
+            job.status = JobStatus.FAILED
+            job.finished_at = datetime.utcnow()
+            job.duration_sec = int((job.finished_at - job.started_at).total_seconds()) if job.started_at else None
+            job.error = str(exc)
+            job.eta_sec = None
+            db.session.add(
+                JobLog(
+                    job_id=job.id,
+                    content=json.dumps({"kind": "error", "message": str(exc)}, ensure_ascii=False),
                 )
-                db.session.commit()
-        except SQLAlchemyError:
-            logger.exception("Falha ao atualizar job após erro")
+            )
+            db.session.commit()
         raise

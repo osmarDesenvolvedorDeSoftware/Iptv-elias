@@ -169,3 +169,46 @@ export interface ConfigSaveResponse {
   ok: boolean;
   requiresWorkerRestart: boolean;
 }
+
+export interface XuiIntegrationOptions {
+  tmdb: {
+    enabled: boolean;
+    apiKey?: string | null;
+    language: string;
+    region: string;
+  };
+  throttleMs: number;
+  limitItems?: number | null;
+  maxParallel?: number | null;
+  categoryMapping: {
+    movies: Record<string, number | string>;
+    series: Record<string, number | string>;
+  };
+  bouquets: {
+    movies?: number | string | null;
+    series?: number | string | null;
+    adult?: number | string | null;
+  };
+  adultCategories: Array<string | number>;
+  adultKeywords: string[];
+  retry: {
+    enabled: boolean;
+    maxAttempts: number;
+    backoffSeconds: number;
+  };
+}
+
+export interface XuiIntegrationConfig {
+  tenantId: string;
+  xuiDbUri: string | null;
+  xtreamBaseUrl: string | null;
+  xtreamUsername: string | null;
+  hasXtreamPassword: boolean;
+  options: XuiIntegrationOptions;
+}
+
+export interface SaveXuiIntegrationResponse {
+  ok: boolean;
+  config: XuiIntegrationConfig;
+  requiresWorkerRestart: boolean;
+}

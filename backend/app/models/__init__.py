@@ -5,6 +5,7 @@ from .job_log import JobLog
 from .tenant import Tenant
 from .user import User
 from .stream import Stream, StreamEpisode, StreamSeries
+from .tenant_integration import TenantIntegrationConfig
 
 __all__ = [
     "Bouquet",
@@ -18,4 +19,5 @@ __all__ = [
     "Stream",
     "StreamEpisode",
     "StreamSeries",
+    "TenantIntegrationConfig",
 ]

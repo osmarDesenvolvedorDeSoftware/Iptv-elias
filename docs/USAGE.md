@@ -67,6 +67,35 @@ Informe o tenant no campo correspondente da tela de login para acessar o painel.
    - **Região**: direciona resultados a um país específico (ex.: `BR`).
 4. Salve. A API passará a usar esses parâmetros em todas as importações.
 
+# 🔗 Integração XUI
+
+Para que o painel escreva diretamente no catálogo do XUI é necessário informar, por tenant, as credenciais do banco remoto e da
+API Xtream. A configuração fica em **Configurações > Integração XUI** e contempla os seguintes campos:
+
+- **URI do banco XUI**: string de conexão completa para o MySQL do XUI (ex.: `mysql+pymysql://user:senha@host:3306/xui`).
+- **Xtream Base URL / Usuário / Senha**: credenciais utilizadas para consultar a API Xtream do provedor.
+- **Delay entre chamadas**: tempo (ms) aplicado entre requisições à API para evitar rate limiting.
+- **Limite de itens**: permite rodar smoke tests com apenas N filmes/séries. Deixe vazio para importar tudo.
+- **Jobs paralelos**: quantidade máxima de streams processados em paralelo pela tarefa.
+- **Bouquets (filmes/séries/adulto)**: IDs dos bouquets no XUI que receberão os itens importados.
+- **Palavras-chave e categorias adultas**: usados para direcionar conteúdos sensíveis ao bouquet adulto.
+- **Mapeamentos de categoria**: objetos JSON no formato `{ "id_da_api": id_categoria_xui }` que relacionam as categorias da API
+  Xtream com as categorias já cadastradas no XUI.
+- **Retentativas**: quantidade de tentativas e intervalo (segundos) aplicados quando a API Xtream responde erro temporário.
+
+## Testando a integração
+
+1. Acesse a aba **Integração XUI** e salve as credenciais. Campos em branco mantêm o valor anterior; marque “Limpar senha” para
+   resetar a credencial Xtream.
+2. Volte à página **Importação** e execute “Rodar filmes” ou “Rodar séries”. O painel exibirá o job em andamento e os logs em
+   tempo real.
+3. Ao finalizar, consulte as tabelas `streams`, `streams_series`, `streams_episodes` e `bouquets` no banco XUI informado. Os IDs
+   importados devem aparecer com `source_tag`/`source_tag_filmes` preenchidos e os bouquets atualizados.
+4. Repetir a importação com os mesmos dados não deve gerar duplicações, pois o worker deduplica por URL completa.
+
+Se a API Xtream ficar indisponível ou responder com erro, o worker repetirá a chamada conforme os limites configurados em
+“Retentativas”. Ajuste o “Delay entre chamadas” caso o provedor imponha limites mais rígidos.
+
 # 🧾 Importando Filmes e Séries
 
 O fluxo completo funciona assim:
@@ -92,7 +121,7 @@ docker compose logs -f worker
 
 # 💾 Conferindo no Banco
 
-Os dados de catálogo ficam nas tabelas `movies`, `genres` e `series`. Elas refletem, respectivamente, os filmes importados, os gêneros associados e as séries com suas temporadas/episódios. Para inspeccionar:
+No XUI os dados de catálogo são gravados diretamente nas tabelas `streams`, `streams_series`, `streams_episodes` e `bouquets`. Elas armazenam, respectivamente, os filmes VOD, metadados de séries, vinculações de episódios e a associação aos bouquets configurados. Para inspecionar:
 
 1. Conecte-se ao MySQL na porta `3307` (host `localhost`).
 2. Use um cliente gráfico como DBeaver ou Adminer.
