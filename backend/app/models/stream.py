@@ -17,7 +17,7 @@ class Stream(db.Model):
     group_title = db.Column(db.String(255), nullable=True)
     is_adult = db.Column(db.Boolean, nullable=False, default=False)
     stream_source = db.Column(db.JSON, nullable=False)
-    primary_url = db.Column(db.String(1024), nullable=False)
+    primary_url = db.Column(db.String(512), nullable=False)
     target_container = db.Column(db.String(16), nullable=True)
     source_tag = db.Column(db.String(255), nullable=True)
     source_tag_filmes = db.Column(db.String(255), nullable=True)
