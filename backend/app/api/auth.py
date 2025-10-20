@@ -36,7 +36,7 @@ def login():
     if not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
         return _error("Credenciais inválidas", HTTPStatus.UNAUTHORIZED)
 
-    identity = {"user_id": user.id, "tenant_id": user.tenant_id}
+    identity = f"{user.id}:{user.tenant_id}"
     access_token = create_access_token(identity=identity)
     refresh_token = create_refresh_token(identity=identity)
 
@@ -59,6 +59,16 @@ def login():
 @jwt_required(refresh=True)
 def refresh():
     identity = get_jwt_identity()
+
+    if not isinstance(identity, str) or ":" not in identity:
+        current_app.logger.warning("[auth] Refresh token com identidade inválida: %s", identity)
+        return _error("Sessão inválida", HTTPStatus.UNAUTHORIZED)
+
+    user_id, tenant_id = identity.split(":", 1)
+    current_app.logger.info(
+        "[auth] Renovando token de acesso para usuário %s no tenant %s", user_id, tenant_id
+    )
+
     access_token = create_access_token(identity=identity)
     response = {
         "token": access_token,

@@ -118,22 +118,28 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const refresh = useCallback(async () => {
     const refreshToken = session?.refreshToken;
+    const user = session?.user;
 
-    if (!refreshToken) {
+    if (!refreshToken || !user) {
       clearSession();
       return false;
     }
 
     try {
       const response = await refreshTokens(refreshToken);
-      applySession(response);
+      applySession({
+        token: response.token,
+        expiresInSec: response.expiresInSec,
+        refreshToken,
+        user,
+      });
       return true;
     } catch (error) {
       console.warn('Falha ao renovar sessão', error);
       clearSession();
       return false;
     }
-  }, [applySession, clearSession, session?.refreshToken]);
+  }, [applySession, clearSession, session?.refreshToken, session?.user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,7 +170,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       try {
         const response = await refreshTokens(stored.refreshToken);
         if (!cancelled) {
-          applySession(response);
+          applySession({
+            token: response.token,
+            expiresInSec: response.expiresInSec,
+            refreshToken: stored.refreshToken,
+            user: stored.user,
+          });
         }
       } catch (error) {
         console.warn('Falha ao restaurar sessão, limpando estado', error);

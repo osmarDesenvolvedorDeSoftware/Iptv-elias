@@ -1,7 +1,7 @@
 import type { ApiError } from '../adapters/ApiAdapter';
 import { get, isMockEnabled, post } from '../adapters/ApiAdapter';
 import { MockAdapter } from '../adapters/MockAdapter';
-import { AuthLoginResponse } from '../types';
+import { AuthLoginResponse, AuthRefreshResponse } from '../types';
 
 const MOCK_EMAIL = 'operador@tenant.com';
 const MOCK_PASSWORD = 'admin123';
@@ -31,16 +31,23 @@ export async function login(payload: LoginPayload): Promise<AuthLoginResponse> {
   return post<AuthLoginResponse>('/auth/login', payload, { skipAuth: true });
 }
 
-export async function refresh(refreshToken: string): Promise<AuthLoginResponse> {
+export async function refresh(refreshToken: string): Promise<AuthRefreshResponse> {
   if (isMockEnabled) {
     const response = await MockAdapter.fetch<AuthLoginResponse>('auth.login.json');
     return {
-      ...response,
       token: `${response.token}-refresh`,
+      expiresInSec: response.expiresInSec,
     };
   }
 
-  return post<AuthLoginResponse>('/auth/refresh', { refreshToken }, { skipAuth: true });
+  return post<AuthRefreshResponse>(
+    '/auth/refresh',
+    undefined,
+    {
+      skipAuth: true,
+      headers: { Authorization: `Bearer ${refreshToken}` },
+    },
+  );
 }
 
 export async function me(): Promise<AuthLoginResponse> {

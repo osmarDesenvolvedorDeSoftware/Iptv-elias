@@ -13,6 +13,11 @@ export interface AuthLoginResponse {
   user: User;
 }
 
+export interface AuthRefreshResponse {
+  token: string;
+  expiresInSec: number;
+}
+
 export type ImportType = 'filmes' | 'series';
 
 export type ImportJobStatus = 'queued' | 'running' | 'finished' | 'failed';
