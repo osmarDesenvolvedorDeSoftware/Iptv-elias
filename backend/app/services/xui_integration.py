@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Tuple
+from typing import Any, Iterable, Mapping, Tuple
 
 from ..extensions import db
 from ..models import TenantIntegrationConfig
@@ -39,6 +39,71 @@ _DEFAULT_OPTIONS: dict[str, Any] = {
 }
 
 
+def _clean_string(value: Any) -> str | None:
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return trimmed or None
+    return None
+
+
+def _normalize_string_iterable(values: Any) -> list[str] | None:
+    if values is None:
+        return None
+
+    normalized: list[str] = []
+    iterable: Iterable[Any]
+
+    if isinstance(values, (list, tuple, set)):
+        iterable = values
+    elif isinstance(values, str):
+        iterable = [segment.strip() for segment in values.split(",")]
+    else:
+        return None
+
+    for entry in iterable:
+        if entry is None:
+            continue
+        text = str(entry).strip()
+        if not text:
+            continue
+        normalized.append(text)
+    return normalized
+
+
+def _collect_ignore_lists(options: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+    prefixes: set[str] = set()
+    categories: set[str] = set()
+
+    ignore_section = options.get("ignore") if isinstance(options, Mapping) else {}
+    if not isinstance(ignore_section, Mapping):
+        return [], []
+
+    for scope in ("movies", "series"):
+        scope_entry = ignore_section.get(scope)
+        if not isinstance(scope_entry, Mapping):
+            continue
+
+        raw_categories = scope_entry.get("categories")
+        if isinstance(raw_categories, (list, tuple, set)):
+            for category in raw_categories:
+                if category is None:
+                    continue
+                text = str(category).strip()
+                if text:
+                    categories.add(text)
+
+        raw_prefixes = scope_entry.get("prefixes")
+        if isinstance(raw_prefixes, (list, tuple, set)):
+            for prefix in raw_prefixes:
+                if not isinstance(prefix, str):
+                    continue
+                trimmed = prefix.strip()
+                if trimmed:
+                    prefixes.add(trimmed)
+
+    return sorted(prefixes), sorted(categories)
+
+
 def _merge_options(overrides: dict[str, Any] | None) -> dict[str, Any]:
     result = deepcopy(_DEFAULT_OPTIONS)
     if not overrides:
@@ -61,6 +126,10 @@ def get_integration_config(tenant_id: str) -> dict[str, Any]:
             "xtreamBaseUrl": None,
             "xtreamUsername": None,
             "hasXtreamPassword": False,
+            "xuiApiUser": None,
+            "tmdbKey": None,
+            "ignorePrefixes": [],
+            "ignoreCategories": [],
             "options": deepcopy(_DEFAULT_OPTIONS),
         }
 
@@ -115,13 +184,30 @@ def save_integration_config(tenant_id: str, payload: dict[str, Any]) -> Tuple[di
             password_updated = True
 
     options = payload.get("options")
+    merged_options: dict[str, Any] | None = None
     if options is not None:
         if not isinstance(options, dict):
             raise ValueError("Campo 'options' deve ser um objeto")
-        merged = _merge_options(options)
-        config.options = merged
+        merged_options = _merge_options(options)
+        config.options = merged_options
     elif created and not config.options:
-        config.options = deepcopy(_DEFAULT_OPTIONS)
+        merged_options = deepcopy(_DEFAULT_OPTIONS)
+        config.options = merged_options
+    else:
+        merged_options = _merge_options(config.options or {})
+
+    explicit_tmdb_key = _clean_string(payload.get("tmdbKey"))
+    tmdb_key = explicit_tmdb_key
+    tmdb_options = merged_options.get("tmdb") if isinstance(merged_options, Mapping) else {}
+    if tmdb_key is None and isinstance(tmdb_options, Mapping):
+        tmdb_key = _clean_string(tmdb_options.get("apiKey"))
+    config.tmdb_key = tmdb_key
+
+    explicit_prefixes = _normalize_string_iterable(payload.get("ignorePrefixes"))
+    explicit_categories = _normalize_string_iterable(payload.get("ignoreCategories"))
+    derived_prefixes, derived_categories = _collect_ignore_lists(merged_options)
+    config.ignore_prefixes = explicit_prefixes if explicit_prefixes is not None else derived_prefixes
+    config.ignore_categories = explicit_categories if explicit_categories is not None else derived_categories
 
     db.session.commit()
 
@@ -154,5 +240,10 @@ def get_worker_config(tenant_id: str) -> dict[str, Any]:
         "xtream_base_url": config.xtream_base_url,
         "xtream_username": config.xtream_username,
         "xtream_password": config.xtream_password,
+        "xui_api_user": config.xtream_username,
+        "xui_api_pass": config.xtream_password,
+        "tmdb_key": config.tmdb_key,
+        "ignore_prefixes": list(config.ignore_prefixes or []),
+        "ignore_categories": list(config.ignore_categories or []),
         "options": options,
     }

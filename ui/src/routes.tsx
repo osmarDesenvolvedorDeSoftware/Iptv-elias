@@ -5,6 +5,7 @@ const ImportacaoPage = lazy(() => import('./routes/Importacao'));
 const BouquetsPage = lazy(() => import('./routes/Bouquets'));
 const LogsPage = lazy(() => import('./routes/Logs'));
 const ConfiguracoesPage = lazy(() => import('./routes/Config'));
+const TenantsPage = lazy(() => import('./routes/Tenants'));
 
 const LoginPage = lazy(() => import('./routes/Login'));
 
@@ -15,6 +16,7 @@ export type RouteConfig = {
 
 export const appRoutes: RouteConfig[] = [
   { path: '/', element: DashboardPage },
+  { path: '/tenants', element: TenantsPage },
   { path: '/importacao', element: ImportacaoPage },
   { path: '/bouquets', element: BouquetsPage },
   { path: '/logs', element: LogsPage },
