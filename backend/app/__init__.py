@@ -60,6 +60,12 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
         app,
         resources={r"/*": {"origins": origins}},
         supports_credentials=True,
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-Tenant-ID",
+        ],
+        expose_headers=["X-Tenant-ID"],
     )
 
     db.init_app(app)
