@@ -191,6 +191,10 @@ export interface XuiIntegrationOptions {
   };
   adultCategories: Array<string | number>;
   adultKeywords: string[];
+  ignore: {
+    movies: { categories: Array<string | number>; prefixes: string[] };
+    series: { categories: Array<string | number>; prefixes: string[] };
+  };
   retry: {
     enabled: boolean;
     maxAttempts: number;
