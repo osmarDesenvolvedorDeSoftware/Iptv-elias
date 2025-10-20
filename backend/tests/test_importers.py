@@ -89,5 +89,5 @@ def test_movie_importer_deduplicates(mock_flush, mock_add_all, mock_commit, movi
     assert repository.insert_movie.call_count == 1
     assert repository.movie_url_exists.call_count == 2
     assert job.inserted == 1
-    assert job.ignored >= 1
+    assert job.updated >= 1
     assert job.source_tag_filmes is not None

@@ -4,6 +4,7 @@ import json
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
+from collections.abc import Mapping as MappingABC
 from typing import Any, Iterable, Iterator, Mapping
 
 from sqlalchemy import create_engine, text
@@ -58,6 +59,20 @@ class XuiRepository:
         self.engine = engine
         self._database_name: str | None = None
 
+    def _serialize_categories(self, category_ids: Iterable[int]) -> str:
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for cid in category_ids:
+            try:
+                normalized_id = int(cid)
+            except (TypeError, ValueError):
+                continue
+            if normalized_id in seen:
+                continue
+            seen.add(normalized_id)
+            normalized.append(normalized_id)
+        return json.dumps(normalized)
+
     def _database(self, connection) -> str:
         if self._database_name:
             return self._database_name
@@ -86,7 +101,7 @@ class XuiRepository:
         if not exists:
             connection.execute(text(ddl))
 
-    def normalize_stream_sources(self) -> NormalizationResult:
+    def normalize_sources(self) -> NormalizationResult:
         with session_scope(self.engine) as conn:
             result = normalize_sources(conn)
             return result
@@ -94,7 +109,8 @@ class XuiRepository:
     def movie_url_exists(self, url: str) -> Mapping[str, Any] | None:
         query = text(
             """
-            SELECT id, source_tag_filmes FROM streams
+            SELECT id, category_id, stream_icon, target_container, movie_properties, source_tag_filmes
+            FROM streams
             WHERE type = 2 AND JSON_CONTAINS(stream_source, JSON_QUOTE(:url))
             LIMIT 1
             """
@@ -102,19 +118,119 @@ class XuiRepository:
         with self.engine.connect() as conn:
             result = conn.execute(query, {"url": url})
             row = result.mappings().first()
-            return row
+            if not row:
+                return None
+            try:
+                categories = json.loads(row.get("category_id") or "[]")
+            except (TypeError, ValueError):
+                categories = []
+            try:
+                properties = json.loads(row.get("movie_properties") or "{}")
+            except (TypeError, ValueError):
+                properties = {}
+            return {
+                "id": int(row.get("id")),
+                "category_ids": categories if isinstance(categories, list) else [],
+                "stream_icon": row.get("stream_icon"),
+                "target_container": row.get("target_container"),
+                "movie_properties": properties if isinstance(properties, MappingABC) else {},
+                "source_tag_filmes": row.get("source_tag_filmes"),
+            }
 
-    def episode_url_exists(self, url: str) -> bool:
+    def episode_url_exists(self, url: str) -> Mapping[str, Any] | None:
         query = text(
             """
-            SELECT 1 FROM streams
-            WHERE JSON_CONTAINS(stream_source, JSON_QUOTE(:url))
+            SELECT id, category_id, stream_icon, target_container, movie_properties, source_tag
+            FROM streams
+            WHERE type = 5 AND JSON_CONTAINS(stream_source, JSON_QUOTE(:url))
             LIMIT 1
             """
         )
         with self.engine.connect() as conn:
             result = conn.execute(query, {"url": url})
-            return result.first() is not None
+            row = result.mappings().first()
+            if not row:
+                return None
+            try:
+                categories = json.loads(row.get("category_id") or "[]")
+            except (TypeError, ValueError):
+                categories = []
+            try:
+                properties = json.loads(row.get("movie_properties") or "{}")
+            except (TypeError, ValueError):
+                properties = {}
+            return {
+                "id": int(row.get("id")),
+                "category_ids": categories if isinstance(categories, list) else [],
+                "stream_icon": row.get("stream_icon"),
+                "target_container": row.get("target_container"),
+                "movie_properties": properties if isinstance(properties, MappingABC) else {},
+                "source_tag": row.get("source_tag"),
+            }
+
+    def update_movie_metadata(
+        self,
+        stream_id: int,
+        *,
+        category_ids: Iterable[int],
+        icon: str | None,
+        target_container: str | None,
+        properties: Mapping[str, Any] | None,
+        source_tag: str | None,
+    ) -> None:
+        payload = {
+            "id": stream_id,
+            "category_id": self._serialize_categories(category_ids),
+            "stream_icon": icon or "",
+            "target_container": target_container,
+            "movie_properties": json.dumps(properties or {}, ensure_ascii=False),
+            "source_tag_filmes": source_tag,
+        }
+        statement = text(
+            """
+            UPDATE streams
+            SET category_id = :category_id,
+                stream_icon = :stream_icon,
+                target_container = :target_container,
+                movie_properties = :movie_properties,
+                source_tag_filmes = :source_tag_filmes
+            WHERE id = :id
+            """
+        )
+        with session_scope(self.engine) as conn:
+            conn.execute(statement, payload)
+
+    def update_episode_metadata(
+        self,
+        stream_id: int,
+        *,
+        category_ids: Iterable[int],
+        icon: str | None,
+        target_container: str | None,
+        properties: Mapping[str, Any] | None,
+        source_tag: str | None,
+    ) -> None:
+        payload = {
+            "id": stream_id,
+            "category_id": self._serialize_categories(category_ids),
+            "stream_icon": icon or "",
+            "target_container": target_container,
+            "movie_properties": json.dumps(properties or {}, ensure_ascii=False),
+            "source_tag": source_tag,
+        }
+        statement = text(
+            """
+            UPDATE streams
+            SET category_id = :category_id,
+                stream_icon = :stream_icon,
+                target_container = :target_container,
+                movie_properties = :movie_properties,
+                source_tag = :source_tag
+            WHERE id = :id
+            """
+        )
+        with session_scope(self.engine) as conn:
+            conn.execute(statement, payload)
 
     def insert_movie(
         self,
