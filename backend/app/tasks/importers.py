@@ -18,6 +18,7 @@ from ..models import Job, JobLog, JobStatus
 from ..services.importers import categoria_adulta, dominio_de, source_tag_from_url, target_container_from_url
 from ..services.xui_db import XuiCredentials, XuiRepository, get_engine
 from ..services.xui_integration import get_worker_config
+from ..services.xui_normalizer import NormalizationResult
 from ..services.xtream_client import XtreamClient, XtreamError
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,12 @@ def _persist_logs(job: Job, buffer: list[dict[str, Any]]) -> None:
         [JobLog(job_id=job.id, content=json.dumps(entry, ensure_ascii=False)) for entry in buffer]
     )
     db.session.flush()
+
+
+def _log_normalization(job: Job, result: NormalizationResult) -> None:
+    payload = result.to_log_payload()
+    db.session.add(JobLog(job_id=job.id, content=json.dumps(payload, ensure_ascii=False)))
+    db.session.commit()
 
 
 def _build_tmdb_params(options: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -637,6 +644,8 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
 
     try:
         importer, _ = _build_importer(tipo, job, tenant_id)
+        normalization_result = importer.repository.normalize_stream_sources()
+        _log_normalization(job, normalization_result)
         importer.execute()
         importer.finalize()
 

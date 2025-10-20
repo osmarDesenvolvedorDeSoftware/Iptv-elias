@@ -9,6 +9,8 @@ from typing import Any, Iterable, Iterator, Mapping
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from .xui_normalizer import NormalizationResult, normalize_sources
+
 _engine_registry: dict[str, Engine] = {}
 _registry_lock = threading.Lock()
 
@@ -83,6 +85,11 @@ class XuiRepository:
         exists = result.scalar() or 0
         if not exists:
             connection.execute(text(ddl))
+
+    def normalize_stream_sources(self) -> NormalizationResult:
+        with session_scope(self.engine) as conn:
+            result = normalize_sources(conn)
+            return result
 
     def movie_url_exists(self, url: str) -> Mapping[str, Any] | None:
         query = text(
