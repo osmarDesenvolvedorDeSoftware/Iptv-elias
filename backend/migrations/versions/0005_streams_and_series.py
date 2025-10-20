@@ -21,7 +21,7 @@ def upgrade() -> None:
         sa.Column("group_title", sa.String(length=255), nullable=True),
         sa.Column("is_adult", sa.Boolean(), nullable=False, server_default=sa.text("0")),
         sa.Column("stream_source", sa.JSON(), nullable=False),
-        sa.Column("primary_url", sa.String(length=1024), nullable=False),
+        sa.Column("primary_url", sa.String(length=512), nullable=False),
         sa.Column("target_container", sa.String(length=16), nullable=True),
         sa.Column("source_tag", sa.String(length=255), nullable=True),
         sa.Column("source_tag_filmes", sa.String(length=255), nullable=True),
