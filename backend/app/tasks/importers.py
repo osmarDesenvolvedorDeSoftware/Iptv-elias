@@ -242,6 +242,7 @@ class _BaseImporter:
         self.total_items = 0
         self.processed = 0
         self.inserted = 0
+        self.updated = 0
         self.ignored = 0
         self.errors = 0
         self.domains: Counter[str] = Counter()
@@ -255,6 +256,7 @@ class _BaseImporter:
     def _commit(self) -> None:
         self.job.progress = (self.processed / self.total_items) if self.total_items else 1.0
         self.job.inserted = self.inserted
+        self.job.updated = self.updated
         self.job.ignored = self.ignored
         self.job.errors = self.errors
         self.job.eta_sec = _estimate_eta(self.start_time, self.processed, self.total_items)
@@ -325,27 +327,87 @@ class _MovieImporter(_BaseImporter):
                     continue
 
                 url = f"{self.xtream.base_url}/movie/{self.xtream.username}/{self.xtream.password}/{stream_id}.{extension}"
-                duplicate = self.repository.movie_url_exists(url)
-                if duplicate:
-                    self.processed += 1
-                    self.ignored += 1
-                    self._log(
-                        {
-                            "kind": "item",
-                            "status": "duplicate",
-                            "title": title,
-                            "url": url,
-                            "existingSourceTag": duplicate.get("source_tag_filmes"),
-                        }
-                    )
-                    self._commit()
-                    continue
-
                 tmdb_payload = _fetch_tmdb_movie(title, tmdb_params) if tmdb_params else {}
                 properties = _movie_properties(title, tmdb_payload, icon)
                 is_adult = _is_adult(title, category_name, category_id, self.options)
                 target_container = target_container_from_url(url)
                 source_tag = source_tag_from_url(url)
+                existing = self.repository.movie_url_exists(url)
+                if existing:
+                    existing_categories: list[int] = []
+                    for cid in existing.get("category_ids", []):
+                        try:
+                            existing_categories.append(int(cid))
+                        except (TypeError, ValueError):
+                            continue
+                    new_categories = list(existing_categories)
+                    if xui_category_id is not None and xui_category_id not in new_categories:
+                        new_categories.append(xui_category_id)
+                    new_icon = icon or existing.get("stream_icon") or ""
+                    new_target = target_container or existing.get("target_container")
+                    new_properties = properties or existing.get("movie_properties") or {}
+                    current_tag = existing.get("source_tag_filmes")
+                    new_tag = source_tag or current_tag
+                    differences: dict[str, Any] = {}
+                    if new_categories != existing_categories:
+                        differences["categoryIds"] = {
+                            "from": existing_categories,
+                            "to": new_categories,
+                        }
+                    if (new_icon or "") != (existing.get("stream_icon") or ""):
+                        differences["icon"] = {
+                            "from": existing.get("stream_icon"),
+                            "to": new_icon,
+                        }
+                    if (new_target or "") != (existing.get("target_container") or ""):
+                        differences["targetContainer"] = {
+                            "from": existing.get("target_container"),
+                            "to": new_target,
+                        }
+                    if new_properties != (existing.get("movie_properties") or {}):
+                        differences["propertiesChanged"] = True
+                    if (new_tag or "") != (current_tag or ""):
+                        differences["sourceTag"] = {
+                            "from": current_tag,
+                            "to": new_tag,
+                        }
+
+                    bouquet_id_raw = adult_bouquet if is_adult else movies_bouquet
+                    bouquet_id = _normalize_int(bouquet_id_raw)
+                    if bouquet_id:
+                        self.repository.append_movie_to_bouquet(bouquet_id, int(existing["id"]))
+
+                    status = "skipped"
+                    if differences:
+                        self.repository.update_movie_metadata(
+                            int(existing["id"]),
+                            category_ids=new_categories,
+                            icon=new_icon,
+                            target_container=new_target,
+                            properties=new_properties,
+                            source_tag=new_tag,
+                        )
+                        self.updated += 1
+                        status = "updated"
+                        if new_tag and (new_tag or "") != (current_tag or ""):
+                            self.domains[new_tag] += 1
+                    else:
+                        self.ignored += 1
+
+                    self.processed += 1
+                    self._log(
+                        {
+                            "kind": "item",
+                            "status": status,
+                            "title": title,
+                            "url": url,
+                            "streamId": existing.get("id"),
+                            "differences": differences,
+                        }
+                    )
+                    self._commit()
+                    continue
+
                 stream_id_db = self.repository.insert_movie(
                     title=title,
                     category_id=xui_category_id,
@@ -528,7 +590,8 @@ class _SeriesImporter(_BaseImporter):
                     self.repository.append_series_to_bouquet(bouquet_id, series_id_db)
 
                 inserted_episodes = 0
-                duplicate_episodes = 0
+                updated_episodes = 0
+                skipped_episodes = 0
                 for season_key, episodes in episodes_payload.items():
                     if not isinstance(episodes, list):
                         continue
@@ -542,12 +605,67 @@ class _SeriesImporter(_BaseImporter):
                         episode_number = int(info.get("episode_num") or ep.get("episode_num") or 0)
                         title_ep = ep.get("title") or f"{title} S{season_number:02d}E{episode_number:02d}"
                         url = f"{self.xtream.base_url}/series/{self.xtream.username}/{self.xtream.password}/{episode_id}.{ext}"
-                        if self.repository.episode_url_exists(url):
-                            duplicate_episodes += 1
-                            continue
                         props = _episode_properties(tmdb_payload, poster, season_number)
                         stream_tag = source_tag_from_url(url)
                         target_container = target_container_from_url(url)
+                        existing_episode = self.repository.episode_url_exists(url)
+                        if existing_episode:
+                            existing_categories: list[int] = []
+                            for cid in existing_episode.get("category_ids", []):
+                                try:
+                                    existing_categories.append(int(cid))
+                                except (TypeError, ValueError):
+                                    continue
+                            new_categories = list(existing_categories)
+                            if xui_category_id is not None and xui_category_id not in new_categories:
+                                new_categories.append(xui_category_id)
+                            new_icon = poster or existing_episode.get("stream_icon") or ""
+                            new_target = target_container or existing_episode.get("target_container")
+                            new_properties = props or existing_episode.get("movie_properties") or {}
+                            current_tag = existing_episode.get("source_tag")
+                            new_tag = stream_tag or current_tag
+                            differences: dict[str, Any] = {}
+                            if new_categories != existing_categories:
+                                differences["categoryIds"] = {
+                                    "from": existing_categories,
+                                    "to": new_categories,
+                                }
+                            if (new_icon or "") != (existing_episode.get("stream_icon") or ""):
+                                differences["icon"] = {
+                                    "from": existing_episode.get("stream_icon"),
+                                    "to": new_icon,
+                                }
+                            if (new_target or "") != (existing_episode.get("target_container") or ""):
+                                differences["targetContainer"] = {
+                                    "from": existing_episode.get("target_container"),
+                                    "to": new_target,
+                                }
+                            if new_properties != (existing_episode.get("movie_properties") or {}):
+                                differences["propertiesChanged"] = True
+                            if (new_tag or "") != (current_tag or ""):
+                                differences["sourceTag"] = {
+                                    "from": current_tag,
+                                    "to": new_tag,
+                                }
+
+                            if differences:
+                                self.repository.update_episode_metadata(
+                                    int(existing_episode["id"]),
+                                    category_ids=new_categories,
+                                    icon=new_icon,
+                                    target_container=new_target,
+                                    properties=new_properties,
+                                    source_tag=new_tag,
+                                )
+                                updated_episodes += 1
+                                self.updated += 1
+                                if new_tag and (new_tag or "") != (current_tag or ""):
+                                    self.domains[new_tag] += 1
+                            else:
+                                skipped_episodes += 1
+                                self.ignored += 1
+                            continue
+
                         self.repository.insert_episode(
                             stream_title=title_ep,
                             urls=[url],
@@ -565,17 +683,16 @@ class _SeriesImporter(_BaseImporter):
 
                 self.inserted += inserted_episodes
                 self.processed += 1
-                if inserted_episodes == 0:
+                if inserted_episodes == 0 and updated_episodes == 0:
                     self.ignored += 1
-                if duplicate_episodes:
-                    self.ignored += duplicate_episodes
                 self._log(
                     {
                         "kind": "item",
                         "status": "processed",
                         "title": title,
                         "episodesInserted": inserted_episodes,
-                        "episodesDuplicate": duplicate_episodes,
+                        "episodesUpdated": updated_episodes,
+                        "episodesSkipped": skipped_episodes,
                         "seriesId": series_id_db,
                         "sourceTag": primary_tag,
                     }
@@ -601,39 +718,6 @@ class _SeriesImporter(_BaseImporter):
             db.session.commit()
 
 
-def _build_importer(tipo: str, job: Job, tenant_id: str) -> tuple[_BaseImporter, XtreamClient]:
-    worker_config = get_worker_config(tenant_id)
-    if not worker_config.get("xui_db_uri"):
-        raise RuntimeError("xui_db_uri não configurado")
-    if not worker_config.get("xtream_base_url"):
-        raise RuntimeError("xtream_base_url não configurado")
-    if not worker_config.get("xtream_username") or not worker_config.get("xtream_password"):
-        raise RuntimeError("Credenciais da API Xtream não configuradas")
-
-    xtream_options = worker_config.get("options", {}) or {}
-    throttle_ms = int(xtream_options.get("throttleMs") or 0)
-    retry_opts = xtream_options.get("retry", {}) or {}
-    xtream_client = XtreamClient(
-        base_url=worker_config["xtream_base_url"],
-        username=worker_config["xtream_username"],
-        password=worker_config["xtream_password"],
-        timeout=30,
-        throttle_ms=throttle_ms,
-        max_retries=int(retry_opts.get("maxAttempts") or 3),
-        backoff_seconds=int(retry_opts.get("backoffSeconds") or 5),
-    )
-
-    engine = get_engine(tenant_id, XuiCredentials(worker_config["xui_db_uri"]))
-    repository = XuiRepository(engine)
-    repository.ensure_compatibility()
-
-    if tipo == "filmes":
-        importer = _MovieImporter(job=job, tenant_id=tenant_id, repository=repository, xtream=xtream_client, options=xtream_options)
-    else:
-        importer = _SeriesImporter(job=job, tenant_id=tenant_id, repository=repository, xtream=xtream_client, options=xtream_options)
-    return importer, xtream_client
-
-
 @celery_app.task(name="tasks.run_import")
 def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = None):
     if tipo not in _IMPORT_TYPES:
@@ -643,9 +727,50 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
     job = _ensure_job(tipo=tipo, tenant_id=tenant_id, user_id=user_id, job_id=job_id)
 
     try:
-        importer, _ = _build_importer(tipo, job, tenant_id)
-        normalization_result = importer.repository.normalize_stream_sources()
+        worker_config = get_worker_config(tenant_id)
+        if not worker_config.get("xui_db_uri"):
+            raise RuntimeError("xui_db_uri não configurado")
+        if not worker_config.get("xtream_base_url"):
+            raise RuntimeError("xtream_base_url não configurado")
+        if not worker_config.get("xtream_username") or not worker_config.get("xtream_password"):
+            raise RuntimeError("Credenciais da API Xtream não configuradas")
+
+        xtream_options = worker_config.get("options", {}) or {}
+        throttle_ms = int(xtream_options.get("throttleMs") or 0)
+        retry_opts = xtream_options.get("retry", {}) or {}
+        xtream_client = XtreamClient(
+            base_url=worker_config["xtream_base_url"],
+            username=worker_config["xtream_username"],
+            password=worker_config["xtream_password"],
+            timeout=30,
+            throttle_ms=throttle_ms,
+            max_retries=int(retry_opts.get("maxAttempts") or 3),
+            backoff_seconds=int(retry_opts.get("backoffSeconds") or 5),
+        )
+
+        engine = get_engine(tenant_id, XuiCredentials(worker_config["xui_db_uri"]))
+        repository = XuiRepository(engine)
+        repository.ensure_compatibility()
+
+        normalization_result = repository.normalize_sources()
         _log_normalization(job, normalization_result)
+        if tipo == "filmes":
+            importer = _MovieImporter(
+                job=job,
+                tenant_id=tenant_id,
+                repository=repository,
+                xtream=xtream_client,
+                options=xtream_options,
+            )
+        else:
+            importer = _SeriesImporter(
+                job=job,
+                tenant_id=tenant_id,
+                repository=repository,
+                xtream=xtream_client,
+                options=xtream_options,
+            )
+
         importer.execute()
         importer.finalize()
 
@@ -654,15 +779,16 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
         job.finished_at = datetime.utcnow()
         job.duration_sec = int((job.finished_at - job.started_at).total_seconds()) if job.started_at else None
         job.inserted = importer.inserted
+        job.updated = importer.updated
         job.ignored = importer.ignored
         job.errors = importer.errors
-        job.updated = 0
         job.eta_sec = None
 
         summary = {
             "kind": "summary",
             "totals": {
                 "inserted": importer.inserted,
+                "updated": importer.updated,
                 "ignored": importer.ignored,
                 "errors": importer.errors,
             },

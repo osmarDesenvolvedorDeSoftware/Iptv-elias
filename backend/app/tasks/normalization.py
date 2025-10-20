@@ -30,7 +30,7 @@ def _build_repository(tenant_id: str) -> XuiRepository:
 
 def run_normalization(tenant_id: str) -> NormalizationResult:
     repository = _build_repository(tenant_id)
-    return repository.normalize_stream_sources()
+    return repository.normalize_sources()
 
 
 def _persist_log(job: Job, payload: dict[str, Any]) -> None:
