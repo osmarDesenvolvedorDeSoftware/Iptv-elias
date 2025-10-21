@@ -11,12 +11,25 @@ class Setting(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.String(64), db.ForeignKey("tenants.id"), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     key = db.Column(db.String(100), nullable=False)
     value = db.Column(db.JSON, nullable=False, default=dict)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    user = db.relationship("User", backref=db.backref("settings", lazy=True))
+    user = db.relationship(
+        "User",
+        backref=db.backref(
+            "settings",
+            lazy=True,
+            cascade="all, delete-orphan",
+            passive_deletes=True,
+        ),
+        passive_deletes=True,
+    )
 
     __table_args__ = (
         db.UniqueConstraint("tenant_id", "user_id", "key", name="uq_settings_tenant_user_key"),

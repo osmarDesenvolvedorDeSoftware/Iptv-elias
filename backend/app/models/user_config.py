@@ -10,7 +10,12 @@ class UserConfig(db.Model):
     __tablename__ = "user_configs"
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
     domain = db.Column("dominio", db.String(255), nullable=True)
     port = db.Column("porta", db.Integer, nullable=True)
     api_username = db.Column("usuario_api", db.String(255), nullable=True)
