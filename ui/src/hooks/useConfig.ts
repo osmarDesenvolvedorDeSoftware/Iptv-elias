@@ -76,7 +76,7 @@ export function useConfig(): UseConfigResult {
         return {
           ...prev,
           lastTestStatus: result.status,
-          lastTestMessage: result.message,
+          lastTestMessage: result.error?.message ?? result.message,
           lastTestAt: result.testedAt ?? prev.lastTestAt,
         };
       });

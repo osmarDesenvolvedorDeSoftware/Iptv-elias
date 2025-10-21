@@ -165,11 +165,17 @@ export async function saveUserSettings(payload: SaveUserSettingsPayload): Promis
   return normalizeUserSettings(response);
 }
 
+export interface DatabaseErrorPayload {
+  code?: string;
+  message?: string;
+}
+
 export interface TestDatabaseResponse {
   success: boolean;
   message: string;
   status?: 'success' | 'error';
   testedAt?: string | null;
+  error?: DatabaseErrorPayload | null;
 }
 
 export async function testDatabaseConnection(
