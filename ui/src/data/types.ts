@@ -49,7 +49,7 @@ export interface ParsedM3UResponse {
   port: number;
   username: string;
   password: string;
-  xuiDbUri: string;
+  xuiDbUri?: string | null;
 }
 
 export interface AdminStats {

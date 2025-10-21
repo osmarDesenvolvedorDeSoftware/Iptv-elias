@@ -14,7 +14,7 @@ _M3U_REGEX = re.compile(
 
 
 def parse_m3u_link(link: str) -> dict[str, Any] | None:
-    """Extract domain, port, username and password from an M3U link."""
+"""Extract Xtream credentials from an M3U link."""
 
     if not isinstance(link, str):
         return None
@@ -51,7 +51,6 @@ def parse_m3u_link(link: str) -> dict[str, Any] | None:
             "port": int(port) if port else 80,
             "username": username,
             "password": password,
-            "xuiDbUri": f"mysql+pymysql://{username}:{password}@{host}:3306/xui",
         }
     except Exception:
         return None
