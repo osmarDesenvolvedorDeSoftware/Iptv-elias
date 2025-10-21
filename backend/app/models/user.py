@@ -17,7 +17,14 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     jobs = db.relationship("Job", backref="user", lazy=True)
-    config = db.relationship("UserConfig", backref="user", uselist=False, lazy=True)
+    config = db.relationship(
+        "UserConfig",
+        backref=db.backref("user", lazy=True, passive_deletes=True),
+        uselist=False,
+        lazy=True,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def __repr__(self) -> str:
         return f"<User {self.email}>"

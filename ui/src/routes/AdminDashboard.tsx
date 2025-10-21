@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
-import { deleteUser, fetchDashboard, fetchUsers, updateUser } from '../data/services/adminService';
+import { deleteUser, fetchDashboard, getUsers, updateUser } from '../data/services/adminService';
 import { AdminRecentError, AdminStats, AdminUser } from '../data/types';
 import { useToast } from '../providers/ToastProvider';
 import { useAuth } from '../providers/AuthProvider';
@@ -22,10 +22,13 @@ export default function AdminDashboard() {
     setError(null);
 
     try {
-      const [dashboard, userList] = await Promise.all([fetchDashboard(), fetchUsers()]);
+      const [dashboard, userList] = await Promise.all([
+        fetchDashboard(),
+        getUsers({ pageSize: 50 }),
+      ]);
       setStats(dashboard.stats);
       setRecentErrors(dashboard.recentErrors);
-      setUsers(userList.users);
+      setUsers(userList.items);
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError?.message ?? 'Não foi possível carregar o dashboard.');

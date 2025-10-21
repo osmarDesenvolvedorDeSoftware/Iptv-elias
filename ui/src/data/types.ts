@@ -32,6 +32,31 @@ export interface UserConfigData {
   xuiDbUri?: string | null;
 }
 
+export interface AdminUserPanelSummary {
+  domain: string | null;
+  port: number | null;
+  username: string | null;
+  active: boolean;
+}
+
+export interface AdminUserPanelConfig extends UserConfigData {
+  password?: string | null;
+}
+
+export interface AdminSettingsDetails {
+  db_host?: string;
+  db_port?: number;
+  db_user?: string;
+  db_pass?: string | null;
+  db_name?: string;
+  api_base_url?: string;
+  m3u_link?: string;
+  tmdb_key?: string | null;
+  xtream_user?: string | null;
+  xtream_pass?: string | null;
+  [key: string]: unknown;
+}
+
 export interface AccountConfigPayload {
   link?: string | null;
   linkM3u?: string | null;
@@ -69,9 +94,23 @@ export interface AdminRecentError {
   error?: string | null;
 }
 
-export interface AdminUser extends User {
+export interface AdminUser extends Omit<User, 'isActive'> {
+  isActive: boolean;
+  status: 'active' | 'inactive';
   createdAt?: string | null;
-  config?: UserConfigData | null;
+  lastSync?: string | null;
+  syncCount: number;
+  panel?: AdminUserPanelSummary | null;
+}
+
+export interface AdminUserConfigSnapshot {
+  userId: number;
+  tenant: {
+    id: string;
+    name?: string | null;
+  };
+  settings: AdminSettingsDetails;
+  panel: AdminUserPanelConfig | null;
 }
 
 export type ImportType = 'filmes' | 'series';

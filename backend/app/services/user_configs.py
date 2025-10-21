@@ -175,6 +175,33 @@ def update_user_config(user: User, payload: dict[str, Any]) -> Tuple[UserConfig,
     return config, bool(base_url)
 
 
+def reset_user_panel(user: User) -> UserConfig:
+    config = _ensure_user_config(user)
+
+    config.domain = None
+    config.port = None
+    config.api_username = None
+    config.api_password = None
+    config.password_hash = None
+    config.xui_db_uri = None
+    config.last_sync = None
+    config.active = False
+    config.updated_at = datetime.utcnow()
+
+    integration = _ensure_integration(user.tenant_id)
+    integration.xtream_base_url = None
+    integration.xtream_username = None
+    integration.xtream_password = None
+    integration.xui_db_uri = None
+    integration.options = integration.options or {}
+    integration.options["active"] = False
+
+    db.session.commit()
+
+    setattr(config, "resolved_xui_db_uri", None)
+    return config
+
+
 def mark_sync(user: User) -> None:
     config = user.config
     if not config:

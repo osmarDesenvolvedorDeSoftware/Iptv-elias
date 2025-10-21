@@ -4,6 +4,7 @@ import { Navigate } from 'react-router-dom';
 const HomeRedirect = lazy(() => import('./routes/Home'));
 const AccountConfigPage = lazy(() => import('./routes/AccountConfig'));
 const AdminDashboardPage = lazy(() => import('./routes/AdminDashboard'));
+const AdminAccountsPage = lazy(() => import('./routes/AdminAccounts'));
 const ImportsPage = lazy(() => import('./routes/Imports'));
 const BouquetsPage = lazy(() => import('./routes/Bouquets'));
 const LogsPage = lazy(() => import('./routes/Logs'));
@@ -25,6 +26,7 @@ export const appRoutes: RouteConfig[] = [
   { path: '/', element: HomeRedirect },
   { path: '/dashboard', element: AccountConfigPage, roles: ['user'] },
   { path: '/admin/dashboard', element: AdminDashboardPage, roles: ['admin'] },
+  { path: '/admin/accounts', element: AdminAccountsPage, roles: ['admin'] },
   { path: '/importacoes', element: ImportsPage, roles: ['admin'] },
   { path: '/importacao', element: () => <Navigate to="/importacoes" replace />, roles: ['admin'] },
   { path: '/bouquets', element: BouquetsPage, roles: ['admin'] },

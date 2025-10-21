@@ -6,6 +6,7 @@ import { useTheme } from '../providers/ThemeProvider';
 
 const adminNavigation = [
   { label: 'Dashboard', to: '/admin/dashboard' },
+  { label: 'Contas IPTV', to: '/admin/accounts' },
   { label: 'Importações', to: '/importacoes' },
   { label: 'Bouquets', to: '/bouquets' },
   { label: 'Relatórios & Logs', to: '/logs' },
