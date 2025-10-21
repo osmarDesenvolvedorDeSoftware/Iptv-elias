@@ -29,6 +29,27 @@ export interface UserConfigData {
   lastSync?: string | null;
   hasPassword?: boolean;
   connectionReady?: boolean;
+  xuiDbUri?: string | null;
+}
+
+export interface AccountConfigPayload {
+  link?: string | null;
+  linkM3u?: string | null;
+  link_m3u?: string | null;
+  domain?: string | null;
+  port?: number | null;
+  username?: string | null;
+  password?: string | null;
+  active?: boolean;
+  xuiDbUri?: string | null;
+}
+
+export interface ParsedM3UResponse {
+  domain: string;
+  port: number;
+  username: string;
+  password: string;
+  xuiDbUri: string;
 }
 
 export interface AdminStats {
