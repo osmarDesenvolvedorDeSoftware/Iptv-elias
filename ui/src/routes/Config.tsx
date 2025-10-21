@@ -8,6 +8,8 @@ import type { ApiError } from '../data/adapters/ApiAdapter';
 import { useConfig } from '../hooks/useConfig';
 import { useToast } from '../providers/ToastProvider';
 import {
+  extractDbAccessDeniedMessage,
+  extractDbAccessDeniedMessageFromApiError,
   extractDbSslMisconfigMessage,
   extractDbSslMisconfigMessageFromApiError,
 } from '../utils/dbErrors';
@@ -203,10 +205,13 @@ export default function Configuracoes() {
     try {
       const payload = buildPayload(form);
       const result = await testConnection(payload);
+      const accessDeniedMessage = extractDbAccessDeniedMessage(result);
       const sslMessage = extractDbSslMisconfigMessage(result);
 
       if (result.success) {
         push(result.message || 'Conexão validada com sucesso.', 'success');
+      } else if (accessDeniedMessage) {
+        push(`❌ ${accessDeniedMessage}`, 'error');
       } else if (sslMessage) {
         push(`⚠️ ${sslMessage}`, 'error');
       } else {
@@ -214,9 +219,12 @@ export default function Configuracoes() {
       }
     } catch (err) {
       const apiError = err as ApiError;
+      const accessDeniedMessage = extractDbAccessDeniedMessageFromApiError(apiError);
       const sslMessage = extractDbSslMisconfigMessageFromApiError(apiError);
 
-      if (sslMessage) {
+      if (accessDeniedMessage) {
+        push(`❌ ${accessDeniedMessage}`, 'error');
+      } else if (sslMessage) {
         push(`⚠️ ${sslMessage}`, 'error');
       } else {
         push(apiError?.message ?? 'Erro ao testar conexão.', 'error');

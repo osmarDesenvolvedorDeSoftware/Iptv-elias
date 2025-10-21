@@ -10,9 +10,12 @@ from sqlalchemy.engine import URL
 
 from ..services import settings as settings_service
 from ..services.mysql_errors import (
+    MysqlAccessDeniedError,
     MysqlSslMisconfigurationError,
     SSL_MISCONFIG_ERROR_MESSAGE,
+    build_access_denied_response,
     build_ssl_misconfiguration_response,
+    is_access_denied_error,
     is_ssl_misconfiguration_error,
 )
 from ..services.user_configs import get_user_config, update_user_config
@@ -27,6 +30,14 @@ logger = logging.getLogger(__name__)
 def _ssl_error_payload() -> dict[str, Any]:
     payload = build_ssl_misconfiguration_response()
     payload["message"] = payload["error"]["message"]
+    payload["code"] = payload["error"]["code"]
+    return payload
+
+
+def _access_denied_payload(*, user: str | None, database: str | None) -> dict[str, Any]:
+    payload = build_access_denied_response(user=user, database=database)
+    payload["message"] = payload["error"]["message"]
+    payload["code"] = payload["error"]["code"]
     return payload
 
 
@@ -200,6 +211,13 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
                 user or "",
             )
             raise MysqlSslMisconfigurationError(host=host, user=user or "") from exc
+        if is_access_denied_error(exc):
+            logger.warning(
+                "[DB] Access denied by remote MySQL host %s (user=%s)",
+                host,
+                user or "",
+            )
+            raise MysqlAccessDeniedError(host=host, user=user or "", database=database) from exc
         raise RuntimeError(f"Não foi possível conectar ao banco XUI: {exc}") from exc
     else:
         try:
@@ -310,6 +328,15 @@ def test_database():
             message=SSL_MISCONFIG_ERROR_MESSAGE,
         )
         return jsonify(_ssl_error_payload()), HTTPStatus.BAD_REQUEST
+    except MysqlAccessDeniedError as exc:
+        payload = _access_denied_payload(user=exc.user or db_user, database=name)
+        settings_service.update_test_metadata(
+            tenant_id,
+            user.id,
+            status="error",
+            message=payload["error"]["message"],
+        )
+        return jsonify(payload), HTTPStatus.BAD_REQUEST
     except RuntimeError as exc:
         settings_service.update_test_metadata(
             tenant_id,

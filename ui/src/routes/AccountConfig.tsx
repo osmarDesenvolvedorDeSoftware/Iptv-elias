@@ -19,6 +19,8 @@ import type {
 } from '../data/types';
 import { useToast } from '../providers/ToastProvider';
 import {
+  extractDbAccessDeniedMessage,
+  extractDbAccessDeniedMessageFromApiError,
   extractDbSslMisconfigMessage,
   extractDbSslMisconfigMessageFromApiError,
 } from '../utils/dbErrors';
@@ -380,18 +382,26 @@ export default function AccountConfig() {
 
     try {
       const response = await testDatabaseConnection(payload);
+      const accessDeniedMessage = extractDbAccessDeniedMessage(response);
       const sslMessage = extractDbSslMisconfigMessage(response);
 
       if (!response.success) {
+        if (accessDeniedMessage) {
+          setDbStatus({ type: 'danger', message: accessDeniedMessage });
+          push(`❌ ${accessDeniedMessage}`, 'error');
+          return;
+        }
+
         if (sslMessage) {
           setDbStatus({ type: 'danger', message: sslMessage });
           push(`⚠️ ${sslMessage}`, 'error');
-        } else {
-          setDbStatus({
-            type: 'danger',
-            message: response.message || 'Não foi possível validar a conexão com o banco.',
-          });
+          return;
         }
+
+        const fallbackMessage =
+          response.message || 'Não foi possível validar a conexão com o banco.';
+        setDbStatus({ type: 'danger', message: fallbackMessage });
+        push(fallbackMessage, 'error');
         return;
       }
 
@@ -410,9 +420,13 @@ export default function AccountConfig() {
       push('Conexão com o banco verificada.', 'success');
     } catch (err) {
       const apiError = err as ApiError;
+      const accessDeniedMessage = extractDbAccessDeniedMessageFromApiError(apiError);
       const sslMessage = extractDbSslMisconfigMessageFromApiError(apiError);
 
-      if (sslMessage) {
+      if (accessDeniedMessage) {
+        setDbStatus({ type: 'danger', message: accessDeniedMessage });
+        push(`❌ ${accessDeniedMessage}`, 'error');
+      } else if (sslMessage) {
         setDbStatus({ type: 'danger', message: sslMessage });
         push(`⚠️ ${sslMessage}`, 'error');
       } else {
@@ -553,7 +567,11 @@ export default function AccountConfig() {
       ) : null}
 
       {status ? (
-        <div className={`alert alert-${status.type} mb-4`} role="status">
+        <div
+          className={`alert alert-${status.type} mb-4`}
+          role="status"
+          style={{ whiteSpace: 'pre-line' }}
+        >
           {status.message}
         </div>
       ) : null}
@@ -676,7 +694,11 @@ export default function AccountConfig() {
           <div className="col-12 mt-4">
             <h2 className="h5 mb-3">Banco de Dados XUI</h2>
             {dbStatus ? (
-              <div className={`alert alert-${dbStatus.type} mb-3`} role="status">
+              <div
+                className={`alert alert-${dbStatus.type} mb-3`}
+                role="status"
+                style={{ whiteSpace: 'pre-line' }}
+              >
                 {dbStatus.message}
               </div>
             ) : null}
