@@ -3,8 +3,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Iterable, Mapping, Tuple
 
-from sqlalchemy.engine import URL
-
 from ..extensions import db
 from ..models import TenantIntegrationConfig
 from . import settings as settings_service
@@ -236,27 +234,9 @@ def require_integration_config(tenant_id: str) -> TenantIntegrationConfig:
 
 
 def _build_mysql_uri(settings: Mapping[str, Any]) -> str | None:
-    host = _clean_string(settings.get("db_host"))
-    user = _clean_string(settings.get("db_user"))
-    database = _clean_string(settings.get("db_name"))
-    if not host or not user or not database:
-        return None
+    """Compatibilidade para inspeções existentes."""
 
-    try:
-        port = int(settings.get("db_port") or 3306)
-    except (TypeError, ValueError):
-        port = 3306
-
-    password = settings.get("db_pass")
-    url = URL.create(
-        "mysql+pymysql",
-        username=user,
-        password=password or "",
-        host=host,
-        port=port,
-        database=database,
-    )
-    return str(url)
+    return settings_service.build_mysql_uri(settings)
 
 
 def get_worker_config(tenant_id: str, user_id: int | None = None) -> dict[str, Any]:
@@ -279,8 +259,11 @@ def get_worker_config(tenant_id: str, user_id: int | None = None) -> dict[str, A
     if user_id is not None:
         user_settings = settings_service.get_settings_with_secrets(tenant_id, user_id)
 
-        mysql_uri = _build_mysql_uri(user_settings)
+        mysql_uri = settings_service.build_mysql_uri(user_settings)
         if mysql_uri:
+            settings_service.update_tenant_mysql_uri(
+                tenant_id, mysql_uri, reason="worker_config"
+            )
             payload["xui_db_uri"] = mysql_uri
 
         api_base = _clean_string(user_settings.get("api_base_url"))
