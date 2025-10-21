@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from typing import Any
 
 import cloudscraper
@@ -217,7 +218,7 @@ class XtreamClient:
         self._throttle()
         return data
 
-    def series(self) -> list[dict[str, Any]]:
+    def series_streams(self) -> list[dict[str, Any]]:
         payload = self._call("get_series")
         data: list[dict[str, Any]] = []
         if isinstance(payload, list):
@@ -228,6 +229,9 @@ class XtreamClient:
                 data = series  # type: ignore[assignment]
         self._throttle()
         return data
+
+    def series(self) -> list[dict[str, Any]]:
+        return self.series_streams()
 
     def series_info(self, series_id: str | int) -> dict[str, Any]:
         payload = self._call("get_series_info", {"series_id": series_id})
@@ -240,6 +244,116 @@ class XtreamClient:
         payload = self._call("get_vod_info", {"vod_id": stream_id})
         self._throttle()
         return payload if isinstance(payload, dict) else {}
+
+
+    @classmethod
+    def from_settings(
+        cls,
+        settings: Mapping[str, Any],
+        **overrides: Any,
+    ) -> "XtreamClient":
+        """Create an ``XtreamClient`` from a generic settings mapping.
+
+        The mapping can contain keys from tenant integration settings or
+        user-level configuration. Extra keyword arguments are forwarded to the
+        constructor, allowing subclasses to receive additional parameters.
+        """
+
+        if not isinstance(settings, Mapping):
+            raise ValueError("Configurações inválidas para o XtreamClient")
+
+        def _clean(value: Any) -> str | None:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                trimmed = value.strip()
+                return trimmed or None
+            return str(value)
+
+        base_url = _clean(
+            overrides.pop("base_url", None)
+            or settings.get("xtream_base_url")
+            or settings.get("api_base_url")
+            or settings.get("base_url")
+        )
+        username = _clean(
+            overrides.pop("username", None)
+            or settings.get("xtream_username")
+            or settings.get("xtream_user")
+            or settings.get("username")
+        )
+        password = overrides.pop("password", None) or settings.get("xtream_password")
+        if password is None:
+            password = settings.get("xtream_pass")
+        if password is None:
+            password = settings.get("password")
+        if password is not None and not isinstance(password, str):
+            password = str(password)
+        if isinstance(password, str):
+            password = password.strip() or None
+
+        if not base_url or not username or not password:
+            raise ValueError("Credenciais Xtream incompletas nas configurações fornecidas")
+
+        def _coerce_int(value: Any) -> int | None:
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        init_kwargs: dict[str, Any] = {
+            "base_url": base_url,
+            "username": username,
+            "password": password,
+        }
+
+        raw_options = settings.get("options")
+        options = raw_options if isinstance(raw_options, Mapping) else None
+        retry_options: Mapping[str, Any] | None = None
+        if options is not None:
+            raw_retry = options.get("retry")
+            if isinstance(raw_retry, Mapping):
+                retry_options = raw_retry
+
+        timeout_value = overrides.pop("timeout", None)
+        if timeout_value is None:
+            timeout_value = settings.get("timeout")
+        timeout_coerced = _coerce_int(timeout_value)
+        if timeout_coerced is not None:
+            init_kwargs["timeout"] = timeout_coerced
+
+        throttle_value = overrides.pop("throttle_ms", None)
+        if throttle_value is None and options is not None:
+            throttle_value = options.get("throttleMs")
+        throttle_coerced = _coerce_int(throttle_value)
+        if throttle_coerced is not None:
+            init_kwargs["throttle_ms"] = throttle_coerced
+
+        max_parallel_value = overrides.pop("max_parallel", None)
+        if max_parallel_value is None and options is not None:
+            max_parallel_value = options.get("maxParallel")
+        max_parallel_coerced = _coerce_int(max_parallel_value)
+        if max_parallel_coerced is not None:
+            init_kwargs["max_parallel"] = max_parallel_coerced
+
+        max_retries_value = overrides.pop("max_retries", None)
+        if max_retries_value is None and retry_options is not None:
+            max_retries_value = retry_options.get("maxAttempts")
+        max_retries_coerced = _coerce_int(max_retries_value)
+        if max_retries_coerced is not None:
+            init_kwargs["max_retries"] = max_retries_coerced
+
+        backoff_value = overrides.pop("backoff_seconds", None)
+        if backoff_value is None and retry_options is not None:
+            backoff_value = retry_options.get("backoffSeconds")
+        backoff_coerced = _coerce_int(backoff_value)
+        if backoff_coerced is not None:
+            init_kwargs["backoff_seconds"] = backoff_coerced
+
+        init_kwargs.update(overrides)
+        return cls(**init_kwargs)
 
 
 __all__ = ["XtreamClient", "XtreamError"]
