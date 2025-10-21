@@ -25,6 +25,9 @@ export interface UserConfigData {
   domain: string | null;
   port: number | null;
   username: string | null;
+  password?: string | null;
+  linkM3u?: string | null;
+  link?: string | null;
   active: boolean;
   lastSync?: string | null;
   hasPassword?: boolean;
