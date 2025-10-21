@@ -11,8 +11,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("user_configs", sa.Column("xui_db_uri", sa.String(length=512), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("user_configs")}
+
+    if "xui_db_uri" not in columns:
+        op.add_column("user_configs", sa.Column("xui_db_uri", sa.String(length=512), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("user_configs", "xui_db_uri")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("user_configs")}
+
+    if "xui_db_uri" in columns:
+        op.drop_column("user_configs", "xui_db_uri")
