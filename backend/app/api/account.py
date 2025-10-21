@@ -4,37 +4,13 @@ from http import HTTPStatus
 import mysql.connector
 from flask import Blueprint, g, jsonify, request
 from mysql.connector import Error as MySQLError
-from urllib.parse import urlparse
 
 from ..models import User
 from ..services.m3u_parser import parse_m3u_link
-from ..services.user_configs import get_user_config, update_user_config
+from ..services.user_configs import get_user_config, parse_mysql_uri, update_user_config
 from .utils import auth_required, json_error
 
 bp = Blueprint("account", __name__, url_prefix="/account")
-
-
-def _normalize_db_host(domain: str | None) -> str | None:
-    if not domain:
-        return None
-
-    candidate = domain.strip()
-    if not candidate:
-        return None
-
-    normalized = candidate
-    if not normalized.startswith(("http://", "https://")):
-        normalized = f"http://{normalized}"
-
-    parsed = urlparse(normalized)
-    host = parsed.hostname
-    if host:
-        return host
-
-    if ":" in candidate:
-        return candidate.split(":", 1)[0]
-
-    return candidate
 
 
 @bp.get("/config")
@@ -65,7 +41,6 @@ def put_config():
                 "port": parsed_from_link["port"],
                 "username": parsed_from_link["username"],
                 "password": parsed_from_link["password"],
-                "xuiDbUri": parsed_from_link["xuiDbUri"],
             }
         )
 
@@ -77,29 +52,48 @@ def put_config():
     if isinstance(domain, str):
         domain = domain.strip() or None
 
-    username = payload.get("username")
-    if username is None:
-        username = current_config.api_username
-    if isinstance(username, str):
-        username = username.strip() or None
+    xtream_username = payload.get("username")
+    if xtream_username is None:
+        xtream_username = current_config.api_username
+    if isinstance(xtream_username, str):
+        xtream_username = xtream_username.strip() or None
 
-    password = payload.get("password")
-    if password is not None:
-        password = str(password).strip()
-    if not password:
-        password = current_config.api_password
+    xtream_password_input = payload.get("password")
+    if xtream_password_input is not None:
+        xtream_password = str(xtream_password_input).strip()
+    else:
+        xtream_password = None
+    if not xtream_password:
+        xtream_password = current_config.api_password
 
-    db_host = _normalize_db_host(domain)
-    if not db_host or not username or not password:
+    raw_db_uri = payload.get("xuiDbUri")
+    if raw_db_uri is None:
+        raw_db_uri = current_config.xui_db_uri
+
+    if raw_db_uri is None:
+        db_uri_candidate = None
+    elif isinstance(raw_db_uri, str):
+        db_uri_candidate = raw_db_uri.strip()
+    else:
+        db_uri_candidate = str(raw_db_uri).strip()
+
+    if not db_uri_candidate:
+        return json_error("Informe a URI do banco XUI para validar a conexão.", HTTPStatus.BAD_REQUEST)
+
+    db_credentials = parse_mysql_uri(db_uri_candidate)
+    if not db_credentials:
+        return json_error("URI do banco XUI inválida.", HTTPStatus.BAD_REQUEST)
+
+    if not domain or not xtream_username or not xtream_password:
         return json_error("Informe domínio, usuário e senha para validar a conexão.", HTTPStatus.BAD_REQUEST)
 
     try:
         connection = mysql.connector.connect(
-            host=db_host,
-            port=3306,
-            user=username,
-            password=password,
-            database="xui",
+            host=db_credentials["host"],
+            port=db_credentials["port"],
+            user=db_credentials["username"],
+            password=db_credentials["password"],
+            database=db_credentials["database"],
             connection_timeout=5,
         )
     except MySQLError as exc:  # pragma: no cover - depends on external resource
@@ -122,6 +116,8 @@ def put_config():
             "Não foi possível validar a conexão com o banco XUI.",
             HTTPStatus.BAD_REQUEST,
         )
+
+    payload["xuiDbUri"] = db_credentials["uri"]
 
     try:
         config, has_base = update_user_config(user, payload)

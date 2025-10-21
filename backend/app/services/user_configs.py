@@ -29,40 +29,57 @@ def _ensure_integration(tenant_id: str) -> TenantIntegrationConfig:
     return integration
 
 
-def _extract_db_host(domain: str | None) -> str | None:
-    if not domain:
+def parse_mysql_uri(uri: str | None) -> dict[str, Any] | None:
+    if not isinstance(uri, str):
         return None
-    candidate = domain.strip()
+
+    candidate = uri.strip()
     if not candidate:
         return None
-    normalized = candidate
-    if not normalized.startswith(("http://", "https://")):
-        normalized = f"http://{normalized}"
 
-    parsed = urlparse(normalized)
-    hostname = parsed.hostname
-    if hostname:
-        return hostname
-    if ":" in candidate:
-        return candidate.split(":", 1)[0]
-    return candidate or None
+    normalized = candidate if "://" in candidate else f"mysql+pymysql://{candidate}"
+
+    try:
+        parsed = urlparse(normalized)
+    except ValueError:
+        return None
+
+    scheme = parsed.scheme or "mysql+pymysql"
+    username = parsed.username
+    host = parsed.hostname
+
+    if not username or not host:
+        return None
+
+    password = parsed.password
+    port = parsed.port or 3306
+    database = parsed.path.lstrip("/") or "xui"
+    query = f"?{parsed.query}" if parsed.query else ""
+    fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+
+    encoded_user = quote_plus(username)
+    password_part = ""
+    if password is not None:
+        encoded_password = quote_plus(password)
+        password_part = f":{encoded_password}"
+
+    sanitized = f"{scheme}://{encoded_user}{password_part}@{host}:{port}/{database}{query}{fragment}"
+
+    return {
+        "uri": sanitized,
+        "host": host,
+        "port": port,
+        "username": username,
+        "password": password or "",
+        "database": database,
+    }
 
 
 def resolve_xui_db_uri(config: UserConfig) -> str | None:
-    uri = config.xui_db_uri.strip() if isinstance(config.xui_db_uri, str) else None
-    if uri:
-        return uri
-
-    domain = _extract_db_host(config.domain)
-    username = config.api_username.strip() if isinstance(config.api_username, str) else None
-    password = config.api_password.strip() if isinstance(config.api_password, str) else None
-
-    if not domain or not username or not password:
+    parsed = parse_mysql_uri(config.xui_db_uri)
+    if not parsed:
         return None
-
-    encoded_username = quote_plus(username)
-    encoded_password = quote_plus(password)
-    return f"mysql+pymysql://{encoded_username}:{encoded_password}@{domain}:3306/xui"
+    return parsed["uri"]
 
 
 def get_user_config(user: User) -> UserConfig:
