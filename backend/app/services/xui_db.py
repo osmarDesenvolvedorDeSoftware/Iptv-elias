@@ -14,7 +14,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from .xui_normalizer import NormalizationResult, normalize_sources
 from .mysql_errors import (
+    MysqlAccessDeniedError,
     MysqlSslMisconfigurationError,
+    is_access_denied_error,
     is_ssl_misconfiguration_error,
 )
 
@@ -66,6 +68,17 @@ def get_engine(tenant_id: str, user_id: int | None, credentials: XuiCredentials)
                     raise MysqlSslMisconfigurationError(
                         host=url.host or "", user=url.username or ""
                     ) from exc
+                if is_access_denied_error(exc):
+                    logger.warning(
+                        "[DB] Access denied on remote MySQL host %s (user=%s)",
+                        url.host or "",
+                        url.username or "",
+                    )
+                    raise MysqlAccessDeniedError(
+                        host=url.host or "",
+                        user=url.username or "",
+                        database=url.database or "",
+                    ) from exc
                 raise
             engine = new_engine
             _engine_registry[key] = engine
@@ -109,6 +122,18 @@ def _connect(engine: Engine):
             )
             raise MysqlSslMisconfigurationError(
                 host=url.host or "", user=url.username or ""
+            ) from exc
+        if is_access_denied_error(exc):
+            url = engine.url
+            logger.warning(
+                "[DB] Access denied on remote MySQL host %s (user=%s)",
+                url.host or "",
+                url.username or "",
+            )
+            raise MysqlAccessDeniedError(
+                host=url.host or "",
+                user=url.username or "",
+                database=url.database or "",
             ) from exc
         raise
 

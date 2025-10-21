@@ -19,8 +19,11 @@ from werkzeug.exceptions import Unauthorized
 from ..extensions import db
 from ..models import Setting, TenantIntegrationConfig, User
 from .mysql_errors import (
+    ACCESS_DENIED,
     SSL_MISCONFIG_ERROR_CODE,
     SSL_MISCONFIG_ERROR_MESSAGE,
+    build_access_denied_response,
+    is_access_denied_error,
     is_ssl_misconfiguration_error,
 )
 
@@ -496,6 +499,27 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
                         "code": SSL_MISCONFIG_ERROR_CODE,
                         "message": SSL_MISCONFIG_ERROR_MESSAGE,
                     },
+                },
+            )
+        if is_access_denied_error(exc):
+            logger.warning(
+                "[DB] Access denied while testing remote MySQL host %s (user=%s)",
+                data.db_host,
+                data.db_user,
+            )
+            response = build_access_denied_response(user=data.db_user, database=data.db_name)
+            message = response["error"]["message"]
+            stored_value["last_test_message"] = message
+            stored_value["last_test_at"] = datetime.utcnow().isoformat() + "Z"
+            _persist_setting(tenant_id, user_id, stored_value, setting)
+            return (
+                False,
+                message,
+                {
+                    "status": "error",
+                    "testedAt": stored_value["last_test_at"],
+                    "error": response["error"],
+                    "code": ACCESS_DENIED,
                 },
             )
 

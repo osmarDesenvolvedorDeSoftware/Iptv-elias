@@ -82,7 +82,7 @@ export function ConfigStatusCard({
           <p className="mb-1">
             <span className="fw-semibold">Último teste:</span> {formatDate(testedAt)}
           </p>
-          <p className="mb-0 text-muted" role="status">
+          <p className="mb-0 text-muted" role="status" style={{ whiteSpace: 'pre-line' }}>
             {message || 'Nenhum teste executado até o momento.'}
           </p>
         </section>
