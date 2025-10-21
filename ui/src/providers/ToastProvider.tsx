@@ -1,5 +1,6 @@
 import {
   PropsWithChildren,
+  ReactNode,
   createContext,
   useCallback,
   useContext,
@@ -11,13 +12,13 @@ export type ToastVariant = 'success' | 'info' | 'error';
 
 export interface ToastMessage {
   id: number;
-  message: string;
+  message: ReactNode;
   variant: ToastVariant;
 }
 
 interface ToastContextValue {
   toasts: ToastMessage[];
-  push: (message: string, variant?: ToastVariant) => void;
+  push: (message: ReactNode, variant?: ToastVariant, options?: { duration?: number }) => void;
   remove: (id: number) => void;
 }
 
@@ -33,15 +34,17 @@ export function ToastProvider({ children }: PropsWithChildren) {
   }, []);
 
   const push = useCallback(
-    (message: string, variant: ToastVariant = 'info') => {
+    (message: ReactNode, variant: ToastVariant = 'info', options: { duration?: number } = {}) => {
       toastCounter += 1;
       const id = toastCounter;
 
       setToasts((current) => [...current, { id, message, variant }]);
 
+      const duration = typeof options.duration === 'number' && options.duration > 0 ? options.duration : TOAST_TIMEOUT_MS;
+
       window.setTimeout(() => {
         remove(id);
-      }, TOAST_TIMEOUT_MS);
+      }, duration);
     },
     [remove],
   );

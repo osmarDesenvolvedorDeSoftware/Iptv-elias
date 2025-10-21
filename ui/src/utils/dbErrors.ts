@@ -32,10 +32,80 @@ function resolveAccessDeniedMessage(message: unknown): string {
   return DEFAULT_DB_ACCESS_DENIED_MESSAGE;
 }
 
+const ACCESS_DENIED_CODES = new Set([DB_ACCESS_DENIED_CODE]);
+
 const errorResolvers: Record<string, ErrorResolver> = {
   [DB_SSL_MISCONFIG_CODE]: (message) => resolveSslMisconfigMessage(message),
   [DB_ACCESS_DENIED_CODE]: (message) => resolveAccessDeniedMessage(message),
 };
+
+function containsErrorCode(value: unknown, targetCodes: Set<string>): boolean {
+  if (!value) {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => containsErrorCode(item, targetCodes));
+  }
+
+  if (typeof value === 'object') {
+    const record = value as UnknownRecord;
+    const code = record['code'];
+    if (typeof code === 'string' && targetCodes.has(code)) {
+      return true;
+    }
+
+    if (containsErrorCode(record['error'], targetCodes)) {
+      return true;
+    }
+
+    if (containsErrorCode(record['details'], targetCodes)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function extractHintForCodes(value: unknown, targetCodes: Set<string>): string | null {
+  if (!value) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hint = extractHintForCodes(item, targetCodes);
+      if (hint) {
+        return hint;
+      }
+    }
+    return null;
+  }
+
+  if (typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as UnknownRecord;
+  const rawHint = record['hint'];
+  const trimmedHint = typeof rawHint === 'string' ? rawHint.trim() : '';
+
+  if (trimmedHint && containsErrorCode(record, targetCodes)) {
+    return trimmedHint;
+  }
+
+  const nestedError = extractHintForCodes(record['error'], targetCodes);
+  if (nestedError) {
+    return nestedError;
+  }
+
+  const nestedDetails = extractHintForCodes(record['details'], targetCodes);
+  if (nestedDetails) {
+    return nestedDetails;
+  }
+
+  return null;
+}
 
 function resolveFromRecord(
   record: UnknownRecord,
@@ -152,4 +222,33 @@ export function extractDbAccessDeniedMessageFromApiError(error: ApiError | null 
 
 export function getDbAccessDeniedFallbackMessage(): string {
   return DEFAULT_DB_ACCESS_DENIED_MESSAGE;
+}
+
+export function extractDbAccessDeniedHint(payload: unknown): string | null {
+  return extractHintForCodes(payload, ACCESS_DENIED_CODES);
+}
+
+export function extractDbAccessDeniedHintFromApiError(error: ApiError | null | undefined): string | null {
+  if (!error) {
+    return null;
+  }
+
+  const direct = extractHintForCodes(error as UnknownRecord, ACCESS_DENIED_CODES);
+  if (direct) {
+    return direct;
+  }
+
+  if (error.details && typeof error.details === 'object') {
+    return extractHintForCodes(error.details as UnknownRecord, ACCESS_DENIED_CODES);
+  }
+
+  return null;
+}
+
+export function isAccessDenied(err?: unknown): boolean {
+  if (!err) {
+    return false;
+  }
+
+  return containsErrorCode(err, ACCESS_DENIED_CODES);
 }

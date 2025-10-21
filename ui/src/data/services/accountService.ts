@@ -176,6 +176,7 @@ export interface TestDatabaseResponse {
   status?: 'success' | 'error';
   testedAt?: string | null;
   error?: DatabaseErrorPayload | null;
+  hint?: string | null;
 }
 
 export async function testDatabaseConnection(

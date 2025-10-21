@@ -398,6 +398,7 @@ export interface ConfigTestResponse {
     code?: string;
     message?: string;
   } | null;
+  hint?: string | null;
 }
 
 export interface XuiIntegrationOptions {
