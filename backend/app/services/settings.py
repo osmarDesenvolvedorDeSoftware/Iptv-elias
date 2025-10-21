@@ -13,9 +13,10 @@ from pydantic import BaseModel, Field, ValidationError, validator
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.exc import SQLAlchemyError
+from werkzeug.exceptions import Unauthorized
 
 from ..extensions import db
-from ..models import Setting
+from ..models import Setting, User
 
 _GENERAL_KEY = "general"
 _SENSITIVE_FIELDS = {"db_pass", "xtream_pass", "tmdb_key"}
@@ -162,6 +163,36 @@ def _merge_defaults(value: dict[str, Any] | None) -> dict[str, Any]:
     return merged
 
 
+def get_or_create_settings(user_id: int) -> Setting:
+    """Return the general settings row for a user, creating it if necessary."""
+
+    setting = Setting.query.filter_by(user_id=user_id, key=_GENERAL_KEY).first()
+    if setting:
+        current_app.logger.info(
+            "[SETTINGS] Usuário %s - Configuração existente carregada", user_id
+        )
+        return setting
+
+    user = User.query.get(user_id)
+    if not user:
+        raise Unauthorized("Sessão inválida")
+
+    setting = Setting(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        key=_GENERAL_KEY,
+        value=deepcopy(DEFAULT_SETTINGS),
+        updated_at=datetime.utcnow(),
+    )
+    db.session.add(setting)
+    db.session.commit()
+
+    current_app.logger.info(
+        "[SETTINGS] Usuário %s - Configuração criada automaticamente", user.id
+    )
+    return setting
+
+
 def get_schema() -> dict[str, Any]:
     return {
         "defaults": deepcopy(DEFAULT_SETTINGS),
@@ -186,6 +217,8 @@ def get_schema() -> dict[str, Any]:
 
 def get_settings(tenant_id: str, user_id: int) -> dict[str, Any]:
     setting = _get_setting(tenant_id, user_id)
+    if setting is None:
+        setting = get_or_create_settings(user_id)
     merged = _merge_defaults(setting.value if setting else None)
 
     response = deepcopy(merged)
@@ -198,6 +231,8 @@ def get_settings(tenant_id: str, user_id: int) -> dict[str, Any]:
 
 def get_settings_with_secrets(tenant_id: str, user_id: int) -> dict[str, Any]:
     setting = _get_setting(tenant_id, user_id)
+    if setting is None:
+        setting = get_or_create_settings(user_id)
     merged = _merge_defaults(setting.value if setting else None)
 
     for field in _SENSITIVE_FIELDS:

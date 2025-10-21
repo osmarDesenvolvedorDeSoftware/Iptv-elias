@@ -8,6 +8,7 @@ from flask import Blueprint, Response, g, jsonify, request
 from sqlalchemy.orm import joinedload
 
 from ..models import Job, JobLog, JobStatus, User
+from ..services import settings as settings_service
 from ..services.jobs import enqueue_import
 from .utils import auth_required, json_error, tenant_from_request
 
@@ -49,10 +50,13 @@ def _resolve_scope(
         target = User.query.filter_by(id=override_id, tenant_id=tenant_id).first()
         if not target:
             return None, None, json_error("Usuário não encontrado para este tenant", HTTPStatus.NOT_FOUND)
+        settings_service.get_or_create_settings(target.id)
         return tenant_id, target, None
 
     if user.tenant_id != tenant_id:
         return None, None, json_error("Tenant inválido para o usuário", HTTPStatus.FORBIDDEN)
+
+    settings_service.get_or_create_settings(user.id)
 
     return tenant_id, user, None
 

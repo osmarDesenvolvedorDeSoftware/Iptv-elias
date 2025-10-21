@@ -15,10 +15,18 @@ Seguro para rodar em banco com dados existentes (apenas UPDATEs in-place).
 """
 
 import json
+import os
 import re
-import mysql.connector
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 from getpass import getpass
+
+import mysql.connector
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
 
 AZUL = "\033[94m"
 VERDE = "\033[92m"
@@ -26,9 +34,46 @@ AMARELO = "\033[93m"
 VERMELHO = "\033[91m"
 RESET = "\033[0m"
 
-def log(msg): print(msg)
+_SETTINGS_BOOTSTRAPPED = False
+
+
+def log(msg):
+    print(msg)
+
+
+def ensure_backend_settings() -> None:
+    global _SETTINGS_BOOTSTRAPPED
+    if _SETTINGS_BOOTSTRAPPED:
+        return
+
+    _SETTINGS_BOOTSTRAPPED = True
+
+    raw_user_id = os.getenv("IPTV_USER_ID")
+    if not raw_user_id:
+        log(f"{AMARELO}IPTV_USER_ID não definido; prosseguindo sem criar settings automaticamente.{RESET}")
+        return
+
+    try:
+        user_id = int(raw_user_id)
+    except ValueError:
+        log(f"{AMARELO}Valor inválido para IPTV_USER_ID: {raw_user_id}.{RESET}")
+        return
+
+    try:
+        from backend.app import create_app
+        from backend.app.services.settings import get_or_create_settings
+    except Exception as exc:  # pragma: no cover - script auxiliar
+        log(f"{AMARELO}Não foi possível inicializar o backend para criar settings: {exc}{RESET}")
+        return
+
+    app = create_app()
+    with app.app_context():
+        get_or_create_settings(user_id)
+
+    log(f"{AZUL}Settings básicos garantidos para o usuário {user_id}.{RESET}")
 
 def conectar():
+    ensure_backend_settings()
     while True:
         try:
             log(f"{AZUL}\nInforme os dados do seu banco de dados MySQL:{RESET}")
