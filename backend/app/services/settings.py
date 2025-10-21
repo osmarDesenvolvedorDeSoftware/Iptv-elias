@@ -4,19 +4,19 @@ import base64
 import hashlib
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, Mapping, Tuple
 from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
 from flask import current_app
 from pydantic import BaseModel, Field, ValidationError, validator
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine, URL
+from sqlalchemy.engine import Engine, URL, make_url
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import Unauthorized
 
 from ..extensions import db
-from ..models import Setting, User
+from ..models import Setting, TenantIntegrationConfig, User
 
 _GENERAL_KEY = "general"
 _SENSITIVE_FIELDS = {"db_pass", "xtream_pass", "tmdb_key"}
@@ -131,6 +131,9 @@ class SettingsPayload(BaseModel):
         return parsed
 
 
+_SETTINGS_PAYLOAD_FIELDS = frozenset(SettingsPayload.__fields__.keys())
+
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "db_host": "",
     "db_port": 3306,
@@ -197,6 +200,76 @@ def _apply_db_columns(setting: Setting | None, value: dict[str, Any]) -> None:
         setting.db_password = password_value or None
     else:
         setting.db_password = str(password_value)
+
+
+def build_mysql_uri(settings: Mapping[str, Any]) -> str | None:
+    """Create a SQLAlchemy MySQL URI from a settings mapping."""
+
+    host = _normalize_optional_string(settings.get("db_host"))
+    user = _normalize_optional_string(settings.get("db_user"))
+    database = _normalize_optional_string(settings.get("db_name"))
+
+    if not host or not user or not database:
+        return None
+
+    try:
+        port = int(settings.get("db_port") or 3306)
+    except (TypeError, ValueError):
+        port = 3306
+
+    password = settings.get("db_pass")
+
+    url = URL.create(
+        "mysql+pymysql",
+        username=user,
+        password=password or "",
+        host=host,
+        port=port,
+        database=database,
+    )
+
+    return url.render_as_string(hide_password=False)
+
+
+def _mask_mysql_uri(uri: str | None) -> str:
+    if not uri:
+        return "<nenhuma>"
+    try:
+        return make_url(uri).render_as_string(hide_password=True)
+    except Exception:  # pragma: no cover - prevenção contra URIs inválidas antigas
+        return uri
+
+
+def update_tenant_mysql_uri(tenant_id: str, mysql_uri: str, *, reason: str) -> None:
+    sanitized = (mysql_uri or "").strip()
+    if not sanitized:
+        return
+
+    config = TenantIntegrationConfig.query.filter_by(tenant_id=tenant_id).first()
+    if not config:
+        return
+
+    if config.xui_db_uri == sanitized:
+        return
+
+    previous = config.xui_db_uri
+    config.xui_db_uri = sanitized
+    db.session.commit()
+
+    current_app.logger.info(
+        "[SETTINGS] Tenant %s - URI do banco XUI atualizada automaticamente (%s -> %s) [fonte=%s]",
+        tenant_id,
+        _mask_mysql_uri(previous),
+        _mask_mysql_uri(sanitized),
+        reason,
+    )
+
+
+def sync_tenant_mysql_uri(tenant_id: str, settings: Mapping[str, Any], *, reason: str) -> None:
+    mysql_uri = build_mysql_uri(settings)
+    if not mysql_uri:
+        return
+    update_tenant_mysql_uri(tenant_id, mysql_uri, reason=reason)
 
 
 def get_or_create_settings(user_id: int) -> Setting:
@@ -328,6 +401,8 @@ def save_settings(tenant_id: str, user_id: int, payload: dict[str, Any]) -> dict
     result["last_test_at"] = None
 
     _persist_setting(tenant_id, user_id, result, setting)
+    stored_with_secrets = get_settings_with_secrets(tenant_id, user_id)
+    sync_tenant_mysql_uri(tenant_id, stored_with_secrets, reason="save_settings")
     return get_settings(tenant_id, user_id)
 
 
@@ -365,8 +440,10 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
     combined: Dict[str, Any] = deepcopy(stored)
     combined.update({k: v for k, v in payload.items() if v is not None})
 
+    filtered_payload = {k: v for k, v in combined.items() if k in _SETTINGS_PAYLOAD_FIELDS}
+
     try:
-        data = SettingsPayload(**combined)
+        data = SettingsPayload(**filtered_payload)
     except ValidationError as exc:
         raise ValueError(exc.errors()) from exc
 
@@ -405,6 +482,10 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
     stored_value["last_test_message"] = "Conexão estabelecida com sucesso"
     stored_value["last_test_at"] = datetime.utcnow().isoformat() + "Z"
     _persist_setting(tenant_id, user_id, stored_value, setting)
+
+    mysql_uri = build_mysql_uri(data.dict())
+    if mysql_uri:
+        update_tenant_mysql_uri(tenant_id, mysql_uri, reason="test_connection")
 
     return True, "Conexão estabelecida com sucesso", {
         "testedAt": stored_value["last_test_at"],
