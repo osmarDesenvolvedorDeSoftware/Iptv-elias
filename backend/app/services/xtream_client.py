@@ -4,6 +4,7 @@ import logging
 import time
 from typing import Any
 
+import cloudscraper
 import requests
 
 
@@ -49,7 +50,7 @@ class XtreamClient:
         self.max_retries = max(1, max_retries)
         self.backoff_seconds = max(1, backoff_seconds)
         self.max_parallel = max(1, max_parallel)
-        self.session = session or requests.Session()
+        self.session = session or cloudscraper.create_scraper()
         self._throttle_counter = 0
 
     def _build_headers(self, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
@@ -79,6 +80,12 @@ class XtreamClient:
         response.raise_for_status()
         return response
 
+    @staticmethod
+    def _is_html_body(body: str | None) -> bool:
+        if not body:
+            return False
+        return "<html" in body.lower()
+
     def _call(self, action: str, params: dict[str, Any] | None = None) -> Any:
         """Call Xtream's ``player_api.php`` handling Cloudflare mitigations.
 
@@ -104,42 +111,79 @@ class XtreamClient:
             https_url = f"{https_base_url}/player_api.php"
 
         headers = self._build_headers()
-        last_error: requests.RequestException | None = None
+        last_error: Exception | None = None
+        last_body_preview: str = ""
+        current_url = url
 
         for attempt in range(1, self.max_retries + 1):
+            if attempt > 1:
+                time.sleep(1)
+            response_obj: requests.Response | None = None
             try:
-                response = self._perform_request(url, params=query, headers=headers)
-                return response.json()
+                response_obj = self._perform_request(current_url, params=query, headers=headers)
+                try:
+                    payload = response_obj.json()
+                except ValueError as json_error:
+                    body_preview = (response_obj.text or "")[:400]
+                    last_body_preview = body_preview if body_preview else "<resposta vazia>"
+                    last_error = json_error
+                    if self._is_html_body(body_preview):
+                        logger.warning(
+                            "⚠️ Xtream bloqueado pelo Cloudflare — resposta HTML interceptada."
+                        )
+                        if https_url and current_url != https_url:
+                            current_url = https_url
+                            continue
+                    continue
+                if https_base_url and https_url and current_url == https_url:
+                    self.base_url = https_base_url
+                return payload
             except requests.HTTPError as exc:
                 last_error = exc
-                response = exc.response
-                if (
-                    https_url
-                    and response is not None
-                    and response.status_code == 403
-                ):
+                response_obj = exc.response
+                status_code = response_obj.status_code if response_obj is not None else None
+                body_preview = ""
+                if response_obj is not None:
+                    body_preview = (response_obj.text or "")[:400]
+                    last_body_preview = body_preview if body_preview else "<resposta vazia>"
+                is_html = self._is_html_body(body_preview)
+                is_403 = status_code == 403
+                if is_403 or is_html:
+                    logger.warning(
+                        "⚠️ Xtream bloqueado pelo Cloudflare — resposta HTML interceptada."
+                    )
+                if is_403 and https_url and current_url != https_url:
                     logger.info(
                         "Xtream request received HTTP 403 for %s, retrying via HTTPS: %s",
-                        url,
+                        current_url,
                         https_url,
                     )
-                    try:
-                        response = self._perform_request(https_url, params=query, headers=headers)
-                        if https_base_url:
-                            self.base_url = https_base_url
-                            url = https_url
-                            https_url = None
-                        return response.json()
-                    except requests.RequestException as https_exc:
-                        last_error = https_exc
+                    current_url = https_url
+                    continue
+                if is_html and https_url and current_url != https_url:
+                    current_url = https_url
+                    continue
             except requests.RequestException as exc:
                 last_error = exc
 
+            body_preview = ""
+            if response_obj is not None:
+                try:
+                    body_preview = (response_obj.text or "")[:400]
+                except Exception:  # pragma: no cover - defensive
+                    body_preview = ""
+            if response_obj is not None:
+                last_body_preview = body_preview if body_preview else "<resposta vazia>"
+
             if attempt < self.max_retries:
-                time.sleep(self.backoff_seconds * attempt)
+                if self.backoff_seconds > 0:
+                    time.sleep(self.backoff_seconds * attempt)
 
         raise XtreamError(
-            f"Xtream API falhou após {self.max_retries} tentativas: {last_error}"
+            (
+                f"Xtream API falhou após {self.max_retries} tentativas: {last_error}. "
+                f"Última resposta: {last_body_preview}"
+            )
         ) from last_error
 
     def _throttle(self) -> None:
