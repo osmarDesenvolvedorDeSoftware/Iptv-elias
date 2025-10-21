@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -8,14 +9,21 @@ from collections.abc import Mapping as MappingABC
 from typing import Any, Iterable, Iterator, Mapping
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.exc import SQLAlchemyError
 
 from .xui_normalizer import NormalizationResult, normalize_sources
+from .mysql_errors import (
+    MysqlSslMisconfigurationError,
+    is_ssl_misconfiguration_error,
+)
 
 _engine_registry: dict[str, Engine] = {}
 _engine_uri_registry: dict[str, str] = {}
 _registry_lock = threading.Lock()
 
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class XuiCredentials:
@@ -38,7 +46,28 @@ def get_engine(tenant_id: str, user_id: int | None, credentials: XuiCredentials)
         if engine is None or current_uri != credentials.uri:
             if engine is not None:
                 engine.dispose()
-            engine = create_engine(credentials.uri, pool_pre_ping=True, pool_recycle=3600)
+            url = make_url(credentials.uri)
+            new_engine: Engine | None = None
+            try:
+                new_engine = create_engine(
+                    credentials.uri, pool_pre_ping=True, pool_recycle=3600
+                )
+                with new_engine.connect() as connection:
+                    connection.execute(text("SELECT 1"))
+            except SQLAlchemyError as exc:
+                if new_engine is not None:
+                    new_engine.dispose()
+                if is_ssl_misconfiguration_error(exc):
+                    logger.warning(
+                        "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
+                        url.host or "",
+                        url.username or "",
+                    )
+                    raise MysqlSslMisconfigurationError(
+                        host=url.host or "", user=url.username or ""
+                    ) from exc
+                raise
+            engine = new_engine
             _engine_registry[key] = engine
             _engine_uri_registry[key] = credentials.uri
         return engine
@@ -55,7 +84,7 @@ def dispose_engine(tenant_id: str, user_id: int | None = None) -> None:
 
 @contextmanager
 def session_scope(engine: Engine) -> Iterator[Any]:
-    connection = engine.connect()
+    connection = _connect(engine)
     transaction = connection.begin()
     try:
         yield connection
@@ -65,6 +94,23 @@ def session_scope(engine: Engine) -> Iterator[Any]:
         raise
     finally:
         connection.close()
+
+
+def _connect(engine: Engine):
+    try:
+        return engine.connect()
+    except SQLAlchemyError as exc:
+        if is_ssl_misconfiguration_error(exc):
+            url = engine.url
+            logger.warning(
+                "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
+                url.host or "",
+                url.username or "",
+            )
+            raise MysqlSslMisconfigurationError(
+                host=url.host or "", user=url.username or ""
+            ) from exc
+        raise
 
 
 class XuiRepository:
@@ -128,7 +174,7 @@ class XuiRepository:
             LIMIT 1
             """
         )
-        with self.engine.connect() as conn:
+        with _connect(self.engine) as conn:
             result = conn.execute(query, {"url": url})
             row = result.mappings().first()
             if not row:
@@ -159,7 +205,7 @@ class XuiRepository:
             LIMIT 1
             """
         )
-        with self.engine.connect() as conn:
+        with _connect(self.engine) as conn:
             result = conn.execute(query, {"url": url})
             row = result.mappings().first()
             if not row:
@@ -309,7 +355,7 @@ class XuiRepository:
             LIMIT 1
             """
         )
-        with self.engine.connect() as conn:
+        with _connect(self.engine) as conn:
             result = conn.execute(query, {"title": title, "tag": source_tag})
             row = result.mappings().first()
             if row:

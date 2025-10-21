@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+import logging
 from typing import Any, Mapping
 
 import pymysql
@@ -8,10 +9,25 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy.engine import URL
 
 from ..services import settings as settings_service
+from ..services.mysql_errors import (
+    MysqlSslMisconfigurationError,
+    SSL_MISCONFIG_ERROR_MESSAGE,
+    build_ssl_misconfiguration_response,
+    is_ssl_misconfiguration_error,
+)
 from ..services.user_configs import get_user_config, update_user_config
 from .utils import auth_required, json_error, tenant_from_request
 
 bp = Blueprint("user_settings", __name__, url_prefix="/api")
+
+
+logger = logging.getLogger(__name__)
+
+
+def _ssl_error_payload() -> dict[str, Any]:
+    payload = build_ssl_misconfiguration_response()
+    payload["message"] = payload["error"]["message"]
+    return payload
 
 
 def _get_str(payload: Mapping[str, Any], *keys: str, fallback: Any = None) -> str:
@@ -177,6 +193,13 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
             charset="utf8mb4",
         )
     except pymysql.MySQLError as exc:  # pragma: no cover - depends on external DB
+        if is_ssl_misconfiguration_error(exc):
+            logger.warning(
+                "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
+                host,
+                user or "",
+            )
+            raise MysqlSslMisconfigurationError(host=host, user=user or "") from exc
         raise RuntimeError(f"Não foi possível conectar ao banco XUI: {exc}") from exc
     else:
         try:
@@ -223,6 +246,8 @@ def update_settings():
         _test_db_connection(host, port, db_user, password, name)
     except ValueError as exc:
         return json_error(str(exc), HTTPStatus.BAD_REQUEST)
+    except MysqlSslMisconfigurationError:
+        return jsonify(_ssl_error_payload()), HTTPStatus.BAD_REQUEST
     except RuntimeError as exc:
         return json_error(str(exc), HTTPStatus.BAD_REQUEST)
 
@@ -277,6 +302,14 @@ def test_database():
         _test_db_connection(host, port, db_user, password, name)
     except ValueError as exc:
         return json_error(str(exc), HTTPStatus.BAD_REQUEST)
+    except MysqlSslMisconfigurationError:
+        settings_service.update_test_metadata(
+            tenant_id,
+            user.id,
+            status="error",
+            message=SSL_MISCONFIG_ERROR_MESSAGE,
+        )
+        return jsonify(_ssl_error_payload()), HTTPStatus.BAD_REQUEST
     except RuntimeError as exc:
         settings_service.update_test_metadata(
             tenant_id,
