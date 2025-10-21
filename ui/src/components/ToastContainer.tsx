@@ -29,9 +29,12 @@ export function ToastContainer() {
           data-variant={toast.variant}
           role="alert"
         >
-          <span className="me-3" style={{ whiteSpace: 'pre-line' }}>
+          <div
+            className="me-3 flex-grow-1"
+            style={typeof toast.message === 'string' ? { whiteSpace: 'pre-line' } : undefined}
+          >
             {toast.message}
-          </span>
+          </div>
           <button
             type="button"
             className="btn btn-sm btn-link text-reset"

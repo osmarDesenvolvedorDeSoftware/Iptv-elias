@@ -525,6 +525,62 @@ body[data-theme='dark'] .app-shell__profile {
   font-weight: 600;
 }
 
+.db-access-denied-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.db-access-denied-notice__message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.db-access-denied-notice__line {
+  margin: 0;
+  display: flex;
+  gap: 0.75rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.db-access-denied-notice__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  flex-shrink: 0;
+  font-size: 1.1rem;
+}
+
+.db-access-denied-notice__icon--spacer {
+  opacity: 0;
+}
+
+.db-access-denied-notice__hint {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 0.75rem;
+  border: 1px solid var(--iptv-surface-border);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+body[data-theme='dark'] .db-access-denied-notice__hint {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+.db-access-denied-notice__hint code {
+  color: inherit;
+}
+
 .dual-list {
   display: flex;
   flex-direction: column;
