@@ -266,6 +266,9 @@ def update_settings():
         return json_error(str(exc), HTTPStatus.BAD_REQUEST)
     except MysqlSslMisconfigurationError:
         return jsonify(_ssl_error_payload()), HTTPStatus.BAD_REQUEST
+    except MysqlAccessDeniedError as exc:
+        payload = _access_denied_payload(user=exc.user or db_user, database=name)
+        return jsonify(payload), HTTPStatus.BAD_REQUEST
     except RuntimeError as exc:
         return json_error(str(exc), HTTPStatus.BAD_REQUEST)
 
