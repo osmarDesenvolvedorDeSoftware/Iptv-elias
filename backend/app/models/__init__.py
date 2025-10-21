@@ -2,6 +2,7 @@ from .bouquet import Bouquet, BouquetItem
 from .configuration import Configuration
 from .job import Job, JobStatus
 from .job_log import JobLog
+from .setting import Setting
 from .tenant import Tenant
 from .user import User
 from .user_config import UserConfig
@@ -15,6 +16,7 @@ __all__ = [
     "Job",
     "JobStatus",
     "JobLog",
+    "Setting",
     "Tenant",
     "User",
     "UserConfig",

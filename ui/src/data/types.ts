@@ -252,28 +252,73 @@ export interface LogDetailResponse {
   content: string;
 }
 
-export interface ConfigResponse {
-  tmdb: {
-    apiKey: string;
-    language: string;
-    region: string;
-  };
-  importer: {
-    movieDelayMs: number;
-    seriesDelayMs: number;
-    maxParallelJobs: number;
-    defaultCategories: string[];
-    useImageCache: boolean;
-  };
-  notifications: {
-    emailAlerts: boolean;
-    webhookUrl: string | null;
-  };
+export type ConfigStatus = 'success' | 'error' | null;
+
+export interface GeneralSettings {
+  dbHost: string;
+  dbPort: number;
+  dbUser: string;
+  dbName: string;
+  apiBaseUrl: string;
+  m3uLink: string;
+  tmdbKeyMasked: boolean;
+  xtreamUser: string;
+  useXtreamApi: boolean;
+  bouquetNormal: number | null;
+  bouquetAdulto: number | null;
+  ignoredPrefixes: string[];
+  dbPassMasked: boolean;
+  xtreamPassMasked: boolean;
+  lastTestStatus: ConfigStatus;
+  lastTestMessage: string | null;
+  lastTestAt: string | null;
+}
+
+export interface SaveConfigPayload {
+  dbHost: string;
+  dbPort: number;
+  dbUser: string;
+  dbName: string;
+  apiBaseUrl: string;
+  m3uLink: string;
+  tmdbKey: string | null;
+  xtreamUser: string;
+  useXtreamApi: boolean;
+  bouquetNormal: number | null;
+  bouquetAdulto: number | null;
+  ignoredPrefixes: string[];
+  dbPass: string | null;
+  xtreamPass: string | null;
+}
+
+export interface ConfigSchemaField {
+  type: 'string' | 'number' | 'password' | 'url' | 'boolean' | 'list';
+  label: string;
+  required: boolean;
+  min?: number;
+  max?: number;
+}
+
+export interface ConfigSchema {
+  defaults: Record<string, unknown>;
+  fields: Record<string, ConfigSchemaField>;
 }
 
 export interface ConfigSaveResponse {
   ok: boolean;
-  requiresWorkerRestart: boolean;
+  settings: GeneralSettings;
+}
+
+export interface ConfigResetResponse {
+  ok: boolean;
+  settings: GeneralSettings;
+}
+
+export interface ConfigTestResponse {
+  success: boolean;
+  message: string;
+  status: 'success' | 'error';
+  testedAt?: string | null;
 }
 
 export interface XuiIntegrationOptions {
