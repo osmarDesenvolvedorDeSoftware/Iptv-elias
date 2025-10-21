@@ -1,7 +1,13 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
-import { fetchConfig, parseM3U, saveAccountConfig } from '../data/services/accountService';
+import {
+  fetchConfig,
+  parseM3U,
+  saveAccountConfig,
+  saveUserSettings,
+  type SaveUserSettingsPayload,
+} from '../data/services/accountService';
 import { getImports, runImport } from '../data/services/importService';
 import type {
   AccountConfigPayload,
@@ -28,17 +34,84 @@ export default function AccountConfig() {
     port: '',
     username: '',
     password: '',
-    active: true,
+    active: false,
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isParsing, setIsParsing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState<StatusMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobSummary>({ filmes: null, series: null });
   const [syncing, setSyncing] = useState<ImportType | null>(null);
 
-  const hasExistingPassword = config?.hasPassword && !formState.password;
+  const hasExistingPassword = Boolean(config?.hasPassword || config?.password);
+
+  const applySettings = useCallback(
+    (
+      data: UserConfigData | null,
+      options: { showEmptyMessage?: boolean; preserveStatus?: boolean } = {},
+    ) => {
+      const { showEmptyMessage = false, preserveStatus = false } = options;
+
+      const resetForm = () => {
+        setFormState({ domain: '', port: '', username: '', password: '', active: false });
+        setLink('');
+      };
+
+      if (!data) {
+        setConfig(null);
+        resetForm();
+        if (!preserveStatus) {
+          setStatus(showEmptyMessage ? { type: 'info', message: 'Nenhuma configuração encontrada' } : null);
+        }
+        return false;
+      }
+
+      const normalizedDomain = data.domain ?? '';
+      const normalizedPort =
+        typeof data.port === 'number' && Number.isFinite(data.port) ? String(data.port) : '';
+      const normalizedUsername = data.username ?? '';
+      const normalizedPassword = data.password ?? '';
+      const normalizedActive = typeof data.active === 'boolean' ? data.active : Boolean(data.active);
+      const normalizedLink =
+        typeof data.linkM3u === 'string'
+          ? data.linkM3u
+          : typeof data.link === 'string'
+          ? data.link
+          : '';
+
+      setConfig(data);
+      setLink(normalizedLink);
+      setFormState({
+        domain: normalizedDomain,
+        port: normalizedPort,
+        username: normalizedUsername,
+        password: normalizedPassword,
+        active: normalizedActive,
+      });
+
+      const hasData =
+        Boolean(normalizedDomain.trim()) ||
+        Boolean(normalizedPort.trim()) ||
+        Boolean(normalizedUsername.trim()) ||
+        Boolean(normalizedPassword.trim()) ||
+        Boolean(normalizedLink.trim());
+
+      if (!preserveStatus) {
+        if (!hasData) {
+          setStatus(showEmptyMessage ? { type: 'info', message: 'Nenhuma configuração encontrada' } : null);
+        } else if (data.connectionReady) {
+          setStatus({ type: 'success', message: 'Conexão com o XUI configurada.' });
+        } else {
+          setStatus(null);
+        }
+      }
+
+      return hasData;
+    },
+    [],
+  );
 
   const lastSyncLabel = useMemo(() => {
     if (!config?.lastSync) {
@@ -77,24 +150,17 @@ export default function AccountConfig() {
           return;
         }
 
-        setConfig(response);
-        setFormState({
-          domain: response.domain ?? '',
-          port: response.port ? String(response.port) : '',
-          username: response.username ?? '',
-          password: '',
-          active: response.active,
-        });
-
-        if (response.connectionReady) {
-          setStatus({ type: 'success', message: 'Conexão com o XUI configurada.' });
-        }
+        applySettings(response, { showEmptyMessage: true });
 
         await loadImports();
       } catch (err) {
         if (!cancelled) {
           const apiError = err as ApiError;
-          setError(apiError?.message ?? 'Não foi possível carregar a configuração.');
+          if (apiError?.status === 404) {
+            applySettings(null, { showEmptyMessage: true });
+          } else {
+            setError(apiError?.message ?? 'Não foi possível carregar a configuração.');
+          }
         }
       } finally {
         if (!cancelled) {
@@ -108,7 +174,7 @@ export default function AccountConfig() {
     return () => {
       cancelled = true;
     };
-  }, [loadImports]);
+  }, [applySettings, loadImports]);
 
   async function handleParse(event: FormEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -141,7 +207,7 @@ export default function AccountConfig() {
 
   async function handleTestConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isTesting) {
+    if (isTesting || isSaving) {
       return;
     }
 
@@ -215,6 +281,60 @@ export default function AccountConfig() {
     }
   }
 
+  async function handleSave() {
+    if (isSaving) {
+      return;
+    }
+
+    const trimmedDomain = formState.domain.trim();
+    const trimmedUsername = formState.username.trim();
+    const trimmedPort = formState.port.trim();
+    const trimmedPassword = formState.password.trim();
+    const trimmedLink = link.trim();
+
+    if (trimmedPort) {
+      const numericPort = Number(trimmedPort);
+      if (Number.isNaN(numericPort)) {
+        setError('Porta inválida.');
+        return;
+      }
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    const payload: SaveUserSettingsPayload = {
+      link_m3u: trimmedLink || null,
+      domain: trimmedDomain || null,
+      username: trimmedUsername || null,
+      active: formState.active,
+    };
+
+    if (trimmedPort) {
+      payload.port = Number(trimmedPort);
+    } else {
+      payload.port = null;
+    }
+
+    payload.password = trimmedPassword ? trimmedPassword : null;
+
+    try {
+      const saved = await saveUserSettings(payload);
+      const hasData = applySettings(saved, { showEmptyMessage: true, preserveStatus: true });
+      if (hasData) {
+        setStatus({ type: 'success', message: 'Configurações salvas com sucesso' });
+      } else {
+        setStatus({ type: 'info', message: 'Nenhuma configuração encontrada' });
+      }
+      push('Configurações salvas com sucesso', 'success');
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError?.message ?? 'Não foi possível salvar as configurações.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <section className="dashboard dashboard--user">
       <header className="dashboard__header">
@@ -247,27 +367,27 @@ export default function AccountConfig() {
             <label className="form-label" htmlFor="link">
               Link M3U
             </label>
-            <input
-              id="link"
-              name="link"
-              type="text"
-              className="form-control"
-              placeholder="https://painel.tv/get.php?username=USUARIO&password=SENHA&type=m3u"
-              value={link}
-              onChange={(event) => setLink(event.target.value)}
-              disabled={isLoading || isParsing || isTesting}
-            />
-          </div>
-          <div className="col-12 col-lg-3 d-flex align-items-end">
-            <button
-              type="button"
-              className="btn btn-outline-primary w-100"
-              onClick={handleParse}
-              disabled={isParsing || isLoading || !link.trim()}
-            >
-              {isParsing ? 'Extraindo…' : 'Extrair dados'}
-            </button>
-          </div>
+          <input
+            id="link"
+            name="link"
+            type="text"
+            className="form-control"
+            placeholder="https://painel.tv/get.php?username=USUARIO&password=SENHA&type=m3u"
+            value={link}
+            onChange={(event) => setLink(event.target.value)}
+            disabled={isLoading || isParsing || isTesting || isSaving}
+          />
+        </div>
+        <div className="col-12 col-lg-3 d-flex align-items-end">
+          <button
+            type="button"
+            className="btn btn-outline-primary w-100"
+            onClick={handleParse}
+            disabled={isParsing || isLoading || !link.trim() || isSaving}
+          >
+            {isParsing ? 'Extraindo…' : 'Extrair dados'}
+          </button>
+        </div>
 
           <div className="col-md-6">
             <label className="form-label" htmlFor="domain">
@@ -278,12 +398,12 @@ export default function AccountConfig() {
               name="domain"
               type="text"
               className="form-control"
-              placeholder="ex: painel.exemplo.com"
-              value={formState.domain}
-              onChange={(event) => setFormState((prev) => ({ ...prev, domain: event.target.value }))}
-              disabled={isLoading || isTesting}
-              required
-            />
+            placeholder="ex: painel.exemplo.com"
+            value={formState.domain}
+            onChange={(event) => setFormState((prev) => ({ ...prev, domain: event.target.value }))}
+            disabled={isLoading || isTesting || isSaving}
+            required
+          />
           </div>
 
           <div className="col-md-2">
@@ -297,11 +417,11 @@ export default function AccountConfig() {
               min={0}
               max={65535}
               className="form-control"
-              placeholder="80"
-              value={formState.port}
-              onChange={(event) => setFormState((prev) => ({ ...prev, port: event.target.value }))}
-              disabled={isLoading || isTesting}
-            />
+            placeholder="80"
+            value={formState.port}
+            onChange={(event) => setFormState((prev) => ({ ...prev, port: event.target.value }))}
+            disabled={isLoading || isTesting || isSaving}
+          />
           </div>
 
           <div className="col-md-4">
@@ -313,12 +433,12 @@ export default function AccountConfig() {
               name="username"
               type="text"
               className="form-control"
-              placeholder="usuario"
-              value={formState.username}
-              onChange={(event) => setFormState((prev) => ({ ...prev, username: event.target.value }))}
-              disabled={isLoading || isTesting}
-              required
-            />
+            placeholder="usuario"
+            value={formState.username}
+            onChange={(event) => setFormState((prev) => ({ ...prev, username: event.target.value }))}
+            disabled={isLoading || isTesting || isSaving}
+            required
+          />
           </div>
 
           <div className="col-md-6">
@@ -330,13 +450,13 @@ export default function AccountConfig() {
               name="password"
               type="password"
               className="form-control"
-              placeholder={hasExistingPassword ? 'Manter senha atual' : 'Senha do painel'}
-              value={formState.password}
-              onChange={(event) => setFormState((prev) => ({ ...prev, password: event.target.value }))}
-              disabled={isLoading || isTesting}
-              minLength={4}
-              required={!hasExistingPassword}
-            />
+            placeholder={hasExistingPassword ? 'Manter senha atual' : 'Senha do painel'}
+            value={formState.password}
+            onChange={(event) => setFormState((prev) => ({ ...prev, password: event.target.value }))}
+            disabled={isLoading || isTesting || isSaving}
+            minLength={4}
+            required={!hasExistingPassword}
+          />
           </div>
 
           <div className="col-md-6 d-flex align-items-end">
@@ -348,7 +468,7 @@ export default function AccountConfig() {
                 className="form-check-input"
                 checked={formState.active}
                 onChange={(event) => setFormState((prev) => ({ ...prev, active: event.target.checked }))}
-                disabled={isLoading || isTesting}
+                disabled={isLoading || isTesting || isSaving}
               />
               <label className="form-check-label" htmlFor="active">
                 Ativar sincronizações automáticas
@@ -358,7 +478,15 @@ export default function AccountConfig() {
         </div>
 
         <div className="d-flex flex-wrap gap-2 mt-4">
-          <button type="submit" className="btn btn-primary" disabled={isTesting || isLoading}>
+          <button
+            type="button"
+            className="btn btn-success"
+            onClick={() => void handleSave()}
+            disabled={isSaving || isLoading || isTesting}
+          >
+            {isSaving ? 'Salvando…' : 'Salvar configurações'}
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={isTesting || isLoading || isSaving}>
             {isTesting ? 'Validando…' : 'Testar conexão'}
           </button>
         </div>
