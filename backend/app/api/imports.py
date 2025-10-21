@@ -2,19 +2,59 @@ from __future__ import annotations
 
 import json
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Mapping
 
-from flask import Blueprint, jsonify, request
-from flask_jwt_extended import jwt_required
+from flask import Blueprint, Response, g, jsonify, request
 from sqlalchemy.orm import joinedload
 
-from ..models import Job, JobLog, JobStatus
+from ..models import Job, JobLog, JobStatus, User
 from ..services.jobs import enqueue_import
-from .utils import current_identity, json_error, tenant_from_request
+from .utils import auth_required, json_error, tenant_from_request
 
 bp = Blueprint("imports", __name__)
 
 VALID_IMPORT_TYPES = {"filmes", "series"}
+
+
+def _extract_user_override(source: Mapping[str, Any] | None = None) -> int | None:
+    raw_value = request.args.get("userId")
+    if raw_value is None and source is not None:
+        raw_value = source.get("userId")
+    if raw_value is None:
+        return None
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError) as exc:  # pragma: no cover - defensivo
+        raise ValueError("Parâmetro 'userId' inválido") from exc
+
+
+def _resolve_scope(
+    payload: Mapping[str, Any] | None = None,
+    *,
+    allow_override: bool,
+) -> tuple[str | None, User | None, Response | None]:
+    tenant_id, tenant_error = tenant_from_request()
+    if tenant_error:
+        return None, None, tenant_error
+
+    try:
+        override_id = _extract_user_override(payload)
+    except ValueError as exc:
+        return None, None, json_error(str(exc), HTTPStatus.BAD_REQUEST)
+
+    user: User = g.current_user  # type: ignore[assignment]
+    if override_id is not None:
+        if not allow_override or user.role != "admin":
+            return None, None, json_error("Acesso restrito a administradores", HTTPStatus.FORBIDDEN)
+        target = User.query.filter_by(id=override_id, tenant_id=tenant_id).first()
+        if not target:
+            return None, None, json_error("Usuário não encontrado para este tenant", HTTPStatus.NOT_FOUND)
+        return tenant_id, target, None
+
+    if user.tenant_id != tenant_id:
+        return None, None, json_error("Tenant inválido para o usuário", HTTPStatus.FORBIDDEN)
+
+    return tenant_id, user, None
 
 
 def _parse_log_content(log: JobLog) -> dict[str, Any]:
@@ -116,20 +156,20 @@ def _job_log_payload(job: Job) -> dict[str, Any]:
 
 
 @bp.post("/importacoes/<string:tipo>/run")
-@jwt_required()
+@auth_required
 def run_import(tipo: str):
     if tipo not in VALID_IMPORT_TYPES:
         return json_error("Tipo de importação inválido", HTTPStatus.BAD_REQUEST)
 
-    tenant_id, error = tenant_from_request()
+    tenant_id, user, error = _resolve_scope(None, allow_override=True)
     if error:
         return error
+    assert tenant_id is not None and user is not None
 
-    user_id, _ = current_identity()
-    if user_id is None:
-        return json_error("Sessão inválida para o usuário", HTTPStatus.UNAUTHORIZED)
-
-    job = enqueue_import(tipo=tipo, tenant_id=tenant_id, user_id=user_id)
+    try:
+        job = enqueue_import(tipo=tipo, tenant_id=tenant_id, user_id=user.id)
+    except (RuntimeError, ValueError) as exc:
+        return json_error(str(exc), HTTPStatus.BAD_REQUEST)
 
     return (
         jsonify(
@@ -143,13 +183,14 @@ def run_import(tipo: str):
 
 
 @bp.get("/jobs/<int:job_id>/status")
-@jwt_required()
+@auth_required
 def job_status(job_id: int):
-    tenant_id, error = tenant_from_request()
+    tenant_id, user, error = _resolve_scope(None, allow_override=True)
     if error:
         return error
+    assert tenant_id is not None and user is not None
 
-    job = Job.query.filter_by(id=job_id, tenant_id=tenant_id).first()
+    job = Job.query.filter_by(id=job_id, tenant_id=tenant_id, user_id=user.id).first()
     if not job:
         return json_error("Job não encontrado", HTTPStatus.NOT_FOUND)
 
@@ -158,15 +199,16 @@ def job_status(job_id: int):
 
 
 @bp.get("/jobs/<int:job_id>")
-@jwt_required()
+@auth_required
 def job_detail(job_id: int):
-    tenant_id, error = tenant_from_request()
+    tenant_id, user, error = _resolve_scope(None, allow_override=True)
     if error:
         return error
+    assert tenant_id is not None and user is not None
 
     job = (
         Job.query.options(joinedload(Job.logs), joinedload(Job.user))
-        .filter_by(id=job_id, tenant_id=tenant_id)
+        .filter_by(id=job_id, tenant_id=tenant_id, user_id=user.id)
         .first()
     )
     if not job:
@@ -179,13 +221,14 @@ def job_detail(job_id: int):
 
 
 @bp.get("/jobs/<int:job_id>/logs")
-@jwt_required()
+@auth_required
 def job_logs(job_id: int):
-    tenant_id, error = tenant_from_request()
+    tenant_id, user, error = _resolve_scope(None, allow_override=True)
     if error:
         return error
+    assert tenant_id is not None and user is not None
 
-    job = Job.query.filter_by(id=job_id, tenant_id=tenant_id).first()
+    job = Job.query.filter_by(id=job_id, tenant_id=tenant_id, user_id=user.id).first()
     if not job:
         return json_error("Job não encontrado", HTTPStatus.NOT_FOUND)
 
@@ -221,21 +264,22 @@ def job_logs(job_id: int):
 
 
 @bp.get("/importacoes/<string:tipo>")
-@jwt_required()
+@auth_required
 def list_imports(tipo: str):
     if tipo not in VALID_IMPORT_TYPES:
         return json_error("Tipo de importação inválido", HTTPStatus.BAD_REQUEST)
 
-    tenant_id, error = tenant_from_request()
+    tenant_id, user, error = _resolve_scope(None, allow_override=True)
     if error:
         return error
+    assert tenant_id is not None and user is not None
 
     page = max(int(request.args.get("page", 1)), 1)
     page_size = max(min(int(request.args.get("pageSize", 20)), 100), 1)
 
     query = (
         Job.query.options(joinedload(Job.logs), joinedload(Job.user))
-        .filter_by(tenant_id=tenant_id, type=tipo)
+        .filter_by(tenant_id=tenant_id, type=tipo, user_id=user.id)
         .order_by(Job.created_at.desc())
     )
     total = query.count()
@@ -256,11 +300,12 @@ def list_imports(tipo: str):
 
 
 @bp.get("/logs")
-@jwt_required()
+@auth_required
 def list_logs():
-    tenant_id, error = tenant_from_request()
+    tenant_id, user, error = _resolve_scope(None, allow_override=True)
     if error:
         return error
+    assert tenant_id is not None and user is not None
 
     job_type = request.args.get("type")
     status = request.args.get("status")
@@ -273,7 +318,7 @@ def list_logs():
     page = max(int(request.args.get("page", 1)), 1)
     page_size = max(min(int(request.args.get("pageSize", 20)), 100), 1)
 
-    query = Job.query.options(joinedload(Job.logs)).filter_by(tenant_id=tenant_id)
+    query = Job.query.options(joinedload(Job.logs)).filter_by(tenant_id=tenant_id, user_id=user.id)
     if job_type:
         query = query.filter(Job.type == job_type)
     if status:
@@ -301,13 +346,18 @@ def list_logs():
 
 
 @bp.get("/logs/<int:log_id>")
-@jwt_required()
+@auth_required
 def log_details(log_id: int):
-    tenant_id, error = tenant_from_request()
+    tenant_id, user, error = _resolve_scope(None, allow_override=True)
     if error:
         return error
+    assert tenant_id is not None and user is not None
 
-    log = JobLog.query.join(Job).filter(JobLog.id == log_id, Job.tenant_id == tenant_id).first()
+    log = (
+        JobLog.query.join(Job)
+        .filter(JobLog.id == log_id, Job.tenant_id == tenant_id, Job.user_id == user.id)
+        .first()
+    )
     if not log:
         return json_error("Log não encontrado", HTTPStatus.NOT_FOUND)
 

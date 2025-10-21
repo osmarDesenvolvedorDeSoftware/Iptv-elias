@@ -295,12 +295,14 @@ class _BaseImporter:
         *,
         job: Job,
         tenant_id: str,
+        user_id: int,
         repository: XuiRepository,
         xtream: XtreamClient,
         options: Mapping[str, Any],
     ) -> None:
         self.job = job
         self.tenant_id = tenant_id
+        self.user_id = user_id
         self.repository = repository
         self.xtream = xtream
         self.options = options
@@ -1035,7 +1037,7 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
     job = _ensure_job(tipo=tipo, tenant_id=tenant_id, user_id=user_id, job_id=job_id)
 
     try:
-        worker_config = get_worker_config(tenant_id)
+        worker_config = get_worker_config(tenant_id, user_id)
         if not worker_config.get("xui_db_uri"):
             raise RuntimeError("xui_db_uri não configurado")
         if not worker_config.get("xtream_base_url"):
@@ -1058,7 +1060,7 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
             max_parallel=max_parallel,
         )
 
-        engine = get_engine(tenant_id, XuiCredentials(worker_config["xui_db_uri"]))
+        engine = get_engine(tenant_id, user_id, XuiCredentials(worker_config["xui_db_uri"]))
         repository = XuiRepository(engine)
         repository.ensure_compatibility()
 
@@ -1098,6 +1100,7 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
             importer = _MovieImporter(
                 job=job,
                 tenant_id=tenant_id,
+                user_id=user_id,
                 repository=repository,
                 xtream=xtream_client,
                 options=xtream_options,
@@ -1106,6 +1109,7 @@ def run_import(tipo: str, tenant_id: str, user_id: int, job_id: int | None = Non
             importer = _SeriesImporter(
                 job=job,
                 tenant_id=tenant_id,
+                user_id=user_id,
                 repository=repository,
                 xtream=xtream_client,
                 options=xtream_options,

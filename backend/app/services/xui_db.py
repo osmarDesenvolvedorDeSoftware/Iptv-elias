@@ -13,6 +13,7 @@ from sqlalchemy.engine import Engine
 from .xui_normalizer import NormalizationResult, normalize_sources
 
 _engine_registry: dict[str, Engine] = {}
+_engine_uri_registry: dict[str, str] = {}
 _registry_lock = threading.Lock()
 
 
@@ -21,21 +22,33 @@ class XuiCredentials:
     uri: str
 
 
-def get_engine(tenant_id: str, credentials: XuiCredentials) -> Engine:
+def _registry_key(tenant_id: str, user_id: int | None) -> str:
+    suffix = str(user_id) if user_id is not None else "default"
+    return f"{tenant_id}:{suffix}"
+
+
+def get_engine(tenant_id: str, user_id: int | None, credentials: XuiCredentials) -> Engine:
     if not credentials.uri:
         raise RuntimeError("URI do banco XUI não configurada")
 
     with _registry_lock:
-        engine = _engine_registry.get(tenant_id)
-        if engine is None:
+        key = _registry_key(tenant_id, user_id)
+        engine = _engine_registry.get(key)
+        current_uri = _engine_uri_registry.get(key)
+        if engine is None or current_uri != credentials.uri:
+            if engine is not None:
+                engine.dispose()
             engine = create_engine(credentials.uri, pool_pre_ping=True, pool_recycle=3600)
-            _engine_registry[tenant_id] = engine
+            _engine_registry[key] = engine
+            _engine_uri_registry[key] = credentials.uri
         return engine
 
 
-def dispose_engine(tenant_id: str) -> None:
+def dispose_engine(tenant_id: str, user_id: int | None = None) -> None:
     with _registry_lock:
-        engine = _engine_registry.pop(tenant_id, None)
+        key = _registry_key(tenant_id, user_id)
+        engine = _engine_registry.pop(key, None)
+        _engine_uri_registry.pop(key, None)
         if engine is not None:
             engine.dispose()
 

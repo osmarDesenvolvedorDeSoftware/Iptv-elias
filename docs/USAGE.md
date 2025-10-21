@@ -116,7 +116,7 @@ Acesse **Configurações > Integração XUI** dentro do tenant desejado:
    docker compose logs -f worker
    ```
 
-Cada execução respeita o `tenant_id` propagado: o worker usa `get_worker_config(tenant_id)` para carregar as credenciais corretas.
+Cada execução respeita o `tenant_id` propagado: o worker usa `get_worker_config(tenant_id, user_id)` para carregar as credenciais corretas.
 
 ---
 
