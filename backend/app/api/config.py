@@ -66,6 +66,9 @@ def _resolve_scope(
     if user_error:
         return None, None, user_error
 
+    assert user is not None
+    settings_service.get_or_create_settings(user.id)
+
     return tenant_id, user, None
 
 

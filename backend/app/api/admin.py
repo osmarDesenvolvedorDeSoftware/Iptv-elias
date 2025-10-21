@@ -418,6 +418,9 @@ def reset_user_panel_config(user_id: int):
 @bp.get("/dashboard")
 @admin_required
 def dashboard():
+    admin_user: User = g.current_user  # type: ignore[assignment]
+    settings_service.get_or_create_settings(admin_user.id)
+
     total_users = User.query.count()
     active_users = User.query.filter_by(is_active=True).count()
     total_jobs = Job.query.count()
