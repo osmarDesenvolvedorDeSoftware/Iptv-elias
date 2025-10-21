@@ -6,6 +6,7 @@ import {
   parseM3U,
   saveAccountConfig,
   saveUserSettings,
+  testDatabaseConnection,
   type SaveUserSettingsPayload,
 } from '../data/services/accountService';
 import { getImports, runImport } from '../data/services/importService';
@@ -25,27 +26,48 @@ interface StatusMessage {
 
 type JobSummary = Record<ImportType, ImportJobHistoryItem | null>;
 
+interface FormState {
+  domain: string;
+  port: string;
+  username: string;
+  password: string;
+  active: boolean;
+  dbHost: string;
+  dbPort: string;
+  dbUser: string;
+  dbPassword: string;
+  dbName: string;
+}
+
 export default function AccountConfig() {
   const { push } = useToast();
   const [link, setLink] = useState('');
   const [config, setConfig] = useState<UserConfigData | null>(null);
-  const [formState, setFormState] = useState({
+  const [formState, setFormState] = useState<FormState>({
     domain: '',
     port: '',
     username: '',
     password: '',
     active: false,
+    dbHost: '',
+    dbPort: '',
+    dbUser: '',
+    dbPassword: '',
+    dbName: '',
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isParsing, setIsParsing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isTestingDb, setIsTestingDb] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState<StatusMessage | null>(null);
+  const [dbStatus, setDbStatus] = useState<StatusMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobSummary>({ filmes: null, series: null });
   const [syncing, setSyncing] = useState<ImportType | null>(null);
 
-  const hasExistingPassword = Boolean(config?.hasPassword || config?.password);
+  const hasExistingPanelPassword = Boolean(config?.hasPassword || config?.password);
+  const hasExistingDbPassword = Boolean(config?.dbPasswordMasked);
 
   const applySettings = useCallback(
     (
@@ -55,18 +77,30 @@ export default function AccountConfig() {
       const { showEmptyMessage = false, preserveStatus = false } = options;
 
       const resetForm = () => {
-        setFormState({ domain: '', port: '', username: '', password: '', active: false });
+        setFormState({
+          domain: '',
+          port: '',
+          username: '',
+          password: '',
+          active: false,
+          dbHost: '',
+          dbPort: '',
+          dbUser: '',
+          dbPassword: '',
+          dbName: '',
+        });
         setLink('');
       };
 
-      if (!data) {
-        setConfig(null);
-        resetForm();
-        if (!preserveStatus) {
-          setStatus(showEmptyMessage ? { type: 'info', message: 'Nenhuma configuração encontrada' } : null);
-        }
-        return false;
+    if (!data) {
+      setConfig(null);
+      resetForm();
+      setDbStatus(null);
+      if (!preserveStatus) {
+        setStatus(showEmptyMessage ? { type: 'info', message: 'Nenhuma configuração encontrada' } : null);
       }
+      return false;
+    }
 
       const normalizedDomain = data.domain ?? '';
       const normalizedPort =
@@ -74,6 +108,11 @@ export default function AccountConfig() {
       const normalizedUsername = data.username ?? '';
       const normalizedPassword = data.password ?? '';
       const normalizedActive = typeof data.active === 'boolean' ? data.active : Boolean(data.active);
+      const normalizedDbHost = data.dbHost ?? '';
+      const normalizedDbPort =
+        typeof data.dbPort === 'number' && Number.isFinite(data.dbPort) ? String(data.dbPort) : '';
+      const normalizedDbUser = data.dbUser ?? '';
+      const normalizedDbName = data.dbName ?? '';
       const normalizedLink =
         typeof data.linkM3u === 'string'
           ? data.linkM3u
@@ -89,14 +128,44 @@ export default function AccountConfig() {
         username: normalizedUsername,
         password: normalizedPassword,
         active: normalizedActive,
+        dbHost: normalizedDbHost,
+        dbPort: normalizedDbPort,
+        dbUser: normalizedDbUser,
+        dbPassword: '',
+        dbName: normalizedDbName,
       });
+
+      if (data.dbConnectionStatus) {
+        const type = data.dbConnectionStatus === 'success' ? 'success' : 'danger';
+        let message =
+          data.dbConnectionMessage ??
+          (data.dbConnectionStatus === 'success'
+            ? 'Conexão com o banco XUI validada.'
+            : 'Falha ao validar a conexão com o banco XUI.');
+        if (data.dbTestedAt) {
+          try {
+            const testedDate = new Date(data.dbTestedAt);
+            if (!Number.isNaN(testedDate.getTime())) {
+              message = `${message} (${testedDate.toLocaleString('pt-BR')})`;
+            }
+          } catch (err) {
+            console.warn('Não foi possível formatar data do teste do banco.', err);
+          }
+        }
+        setDbStatus({ type, message });
+      } else {
+        setDbStatus(null);
+      }
 
       const hasData =
         Boolean(normalizedDomain.trim()) ||
         Boolean(normalizedPort.trim()) ||
         Boolean(normalizedUsername.trim()) ||
         Boolean(normalizedPassword.trim()) ||
-        Boolean(normalizedLink.trim());
+        Boolean(normalizedLink.trim()) ||
+        Boolean(normalizedDbHost.trim()) ||
+        Boolean(normalizedDbUser.trim()) ||
+        Boolean(normalizedDbName.trim());
 
       if (!preserveStatus) {
         if (!hasData) {
@@ -262,6 +331,75 @@ export default function AccountConfig() {
     }
   }
 
+  async function handleTestDb() {
+    if (isTestingDb || isSaving) {
+      return;
+    }
+
+    const trimmedDbHost = formState.dbHost.trim();
+    const trimmedDbPort = formState.dbPort.trim();
+    const trimmedDbUser = formState.dbUser.trim();
+    const trimmedDbPassword = formState.dbPassword.trim();
+    const trimmedDbName = formState.dbName.trim();
+
+    if (!trimmedDbHost || !trimmedDbName) {
+      setDbStatus({ type: 'danger', message: 'Informe host e nome do banco XUI.' });
+      return;
+    }
+
+    if (trimmedDbPort) {
+      const numericDbPort = Number(trimmedDbPort);
+      if (Number.isNaN(numericDbPort)) {
+        setDbStatus({ type: 'danger', message: 'Porta do banco inválida.' });
+        return;
+      }
+    }
+
+    setIsTestingDb(true);
+    setDbStatus(null);
+    setError(null);
+
+    const payload: Partial<SaveUserSettingsPayload> = {
+      db_host: trimmedDbHost,
+      db_name: trimmedDbName,
+    };
+
+    if (trimmedDbPort) {
+      payload.db_port = Number(trimmedDbPort);
+    }
+    if (trimmedDbUser) {
+      payload.db_user = trimmedDbUser;
+    }
+    if (trimmedDbPassword) {
+      payload.db_password = trimmedDbPassword;
+    }
+
+    try {
+      const response = await testDatabaseConnection(payload);
+      let message = response.message || 'Conexão estabelecida com sucesso.';
+      if (response.testedAt) {
+        try {
+          const testedDate = new Date(response.testedAt);
+          if (!Number.isNaN(testedDate.getTime())) {
+            message = `${message} (${testedDate.toLocaleString('pt-BR')})`;
+          }
+        } catch (err) {
+          console.warn('Não foi possível formatar data do teste do banco.', err);
+        }
+      }
+      setDbStatus({ type: 'success', message });
+      push('Conexão com o banco verificada.', 'success');
+    } catch (err) {
+      const apiError = err as ApiError;
+      setDbStatus({
+        type: 'danger',
+        message: apiError?.message ?? 'Não foi possível validar a conexão com o banco.',
+      });
+    } finally {
+      setIsTestingDb(false);
+    }
+  }
+
   async function handleSync(type: ImportType) {
     if (syncing) {
       return;
@@ -291,6 +429,11 @@ export default function AccountConfig() {
     const trimmedPort = formState.port.trim();
     const trimmedPassword = formState.password.trim();
     const trimmedLink = link.trim();
+    const trimmedDbHost = formState.dbHost.trim();
+    const trimmedDbPort = formState.dbPort.trim();
+    const trimmedDbUser = formState.dbUser.trim();
+    const trimmedDbPassword = formState.dbPassword.trim();
+    const trimmedDbName = formState.dbName.trim();
 
     if (trimmedPort) {
       const numericPort = Number(trimmedPort);
@@ -298,6 +441,19 @@ export default function AccountConfig() {
         setError('Porta inválida.');
         return;
       }
+    }
+
+    if (trimmedDbPort) {
+      const numericDbPort = Number(trimmedDbPort);
+      if (Number.isNaN(numericDbPort)) {
+        setError('Porta do banco inválida.');
+        return;
+      }
+    }
+
+    if (!trimmedDbHost || !trimmedDbName) {
+      setError('Informe host e nome do banco XUI.');
+      return;
     }
 
     setIsSaving(true);
@@ -308,6 +464,8 @@ export default function AccountConfig() {
       domain: trimmedDomain || null,
       username: trimmedUsername || null,
       active: formState.active,
+      db_host: trimmedDbHost,
+      db_name: trimmedDbName,
     };
 
     if (trimmedPort) {
@@ -316,7 +474,19 @@ export default function AccountConfig() {
       payload.port = null;
     }
 
-    payload.password = trimmedPassword ? trimmedPassword : null;
+    payload.db_port = trimmedDbPort ? Number(trimmedDbPort) : 3306;
+
+    payload.db_user = trimmedDbUser || null;
+
+    if (trimmedPassword) {
+      payload.password = trimmedPassword;
+    } else {
+      payload.password = null;
+    }
+
+    if (trimmedDbPassword) {
+      payload.db_password = trimmedDbPassword;
+    }
 
     try {
       const saved = await saveUserSettings(payload);
@@ -327,6 +497,7 @@ export default function AccountConfig() {
         setStatus({ type: 'info', message: 'Nenhuma configuração encontrada' });
       }
       push('Configurações salvas com sucesso', 'success');
+      setFormState((prev) => ({ ...prev, password: '', dbPassword: '' }));
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError?.message ?? 'Não foi possível salvar as configurações.');
@@ -375,7 +546,7 @@ export default function AccountConfig() {
             placeholder="https://painel.tv/get.php?username=USUARIO&password=SENHA&type=m3u"
             value={link}
             onChange={(event) => setLink(event.target.value)}
-            disabled={isLoading || isParsing || isTesting || isSaving}
+            disabled={isLoading || isParsing || isTesting || isSaving || isTestingDb}
           />
         </div>
         <div className="col-12 col-lg-3 d-flex align-items-end">
@@ -383,7 +554,7 @@ export default function AccountConfig() {
             type="button"
             className="btn btn-outline-primary w-100"
             onClick={handleParse}
-            disabled={isParsing || isLoading || !link.trim() || isSaving}
+            disabled={isParsing || isLoading || !link.trim() || isSaving || isTestingDb}
           >
             {isParsing ? 'Extraindo…' : 'Extrair dados'}
           </button>
@@ -398,12 +569,12 @@ export default function AccountConfig() {
               name="domain"
               type="text"
               className="form-control"
-            placeholder="ex: painel.exemplo.com"
-            value={formState.domain}
-            onChange={(event) => setFormState((prev) => ({ ...prev, domain: event.target.value }))}
-            disabled={isLoading || isTesting || isSaving}
-            required
-          />
+              placeholder="ex: painel.exemplo.com"
+              value={formState.domain}
+              onChange={(event) => setFormState((prev) => ({ ...prev, domain: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+              required
+            />
           </div>
 
           <div className="col-md-2">
@@ -417,11 +588,11 @@ export default function AccountConfig() {
               min={0}
               max={65535}
               className="form-control"
-            placeholder="80"
-            value={formState.port}
-            onChange={(event) => setFormState((prev) => ({ ...prev, port: event.target.value }))}
-            disabled={isLoading || isTesting || isSaving}
-          />
+              placeholder="80"
+              value={formState.port}
+              onChange={(event) => setFormState((prev) => ({ ...prev, port: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+            />
           </div>
 
           <div className="col-md-4">
@@ -433,12 +604,12 @@ export default function AccountConfig() {
               name="username"
               type="text"
               className="form-control"
-            placeholder="usuario"
-            value={formState.username}
-            onChange={(event) => setFormState((prev) => ({ ...prev, username: event.target.value }))}
-            disabled={isLoading || isTesting || isSaving}
-            required
-          />
+              placeholder="usuario"
+              value={formState.username}
+              onChange={(event) => setFormState((prev) => ({ ...prev, username: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+              required
+            />
           </div>
 
           <div className="col-md-6">
@@ -450,13 +621,13 @@ export default function AccountConfig() {
               name="password"
               type="password"
               className="form-control"
-            placeholder={hasExistingPassword ? 'Manter senha atual' : 'Senha do painel'}
-            value={formState.password}
-            onChange={(event) => setFormState((prev) => ({ ...prev, password: event.target.value }))}
-            disabled={isLoading || isTesting || isSaving}
-            minLength={4}
-            required={!hasExistingPassword}
-          />
+              placeholder={hasExistingPanelPassword ? 'Manter senha atual' : 'Senha do painel'}
+              value={formState.password}
+              onChange={(event) => setFormState((prev) => ({ ...prev, password: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+              minLength={4}
+              required={!hasExistingPanelPassword}
+            />
           </div>
 
           <div className="col-md-6 d-flex align-items-end">
@@ -468,12 +639,116 @@ export default function AccountConfig() {
                 className="form-check-input"
                 checked={formState.active}
                 onChange={(event) => setFormState((prev) => ({ ...prev, active: event.target.checked }))}
-                disabled={isLoading || isTesting || isSaving}
+                disabled={isLoading || isTesting || isSaving || isTestingDb}
               />
               <label className="form-check-label" htmlFor="active">
                 Ativar sincronizações automáticas
               </label>
             </div>
+          </div>
+
+          <div className="col-12 mt-4">
+            <h2 className="h5 mb-3">Banco de Dados XUI</h2>
+            {dbStatus ? (
+              <div className={`alert alert-${dbStatus.type} mb-3`} role="status">
+                {dbStatus.message}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="col-md-4">
+            <label className="form-label" htmlFor="dbHost">
+              Host
+            </label>
+            <input
+              id="dbHost"
+              name="dbHost"
+              type="text"
+              className="form-control"
+              placeholder="ex: 127.0.0.1"
+              value={formState.dbHost}
+              onChange={(event) => setFormState((prev) => ({ ...prev, dbHost: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+              required
+            />
+          </div>
+
+          <div className="col-md-2">
+            <label className="form-label" htmlFor="dbPort">
+              Porta
+            </label>
+            <input
+              id="dbPort"
+              name="dbPort"
+              type="number"
+              min={0}
+              max={65535}
+              className="form-control"
+              placeholder="3306"
+              value={formState.dbPort}
+              onChange={(event) => setFormState((prev) => ({ ...prev, dbPort: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+            />
+          </div>
+
+          <div className="col-md-3">
+            <label className="form-label" htmlFor="dbUser">
+              Usuário
+            </label>
+            <input
+              id="dbUser"
+              name="dbUser"
+              type="text"
+              className="form-control"
+              placeholder="root"
+              value={formState.dbUser}
+              onChange={(event) => setFormState((prev) => ({ ...prev, dbUser: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+            />
+          </div>
+
+          <div className="col-md-3">
+            <label className="form-label" htmlFor="dbPassword">
+              Senha
+            </label>
+            <input
+              id="dbPassword"
+              name="dbPassword"
+              type="password"
+              className="form-control"
+              placeholder={hasExistingDbPassword ? 'Manter senha atual' : 'Senha do banco'}
+              value={formState.dbPassword}
+              onChange={(event) => setFormState((prev) => ({ ...prev, dbPassword: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+            />
+          </div>
+
+          <div className="col-md-4">
+            <label className="form-label" htmlFor="dbName">
+              Nome do banco
+            </label>
+            <input
+              id="dbName"
+              name="dbName"
+              type="text"
+              className="form-control"
+              placeholder="xui"
+              value={formState.dbName}
+              onChange={(event) => setFormState((prev) => ({ ...prev, dbName: event.target.value }))}
+              disabled={isLoading || isTesting || isSaving || isTestingDb}
+              required
+            />
+          </div>
+
+          <div className="col-12 d-flex justify-content-end">
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={() => void handleTestDb()}
+              disabled={isTestingDb || isSaving || isLoading || isTesting}
+            >
+              {isTestingDb ? 'Testando banco…' : 'Testar conexão com banco'}
+            </button>
           </div>
         </div>
 
@@ -482,11 +757,15 @@ export default function AccountConfig() {
             type="button"
             className="btn btn-success"
             onClick={() => void handleSave()}
-            disabled={isSaving || isLoading || isTesting}
+            disabled={isSaving || isLoading || isTesting || isTestingDb}
           >
             {isSaving ? 'Salvando…' : 'Salvar configurações'}
           </button>
-          <button type="submit" className="btn btn-primary" disabled={isTesting || isLoading || isSaving}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={isTesting || isLoading || isSaving || isTestingDb}
+          >
             {isTesting ? 'Validando…' : 'Testar conexão'}
           </button>
         </div>

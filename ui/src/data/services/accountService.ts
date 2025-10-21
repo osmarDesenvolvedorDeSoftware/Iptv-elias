@@ -79,6 +79,30 @@ function normalizeUserSettings(raw: RawUserSettings): UserConfigData | null {
   const activeValue = payload['active'];
   const hasPasswordValue = payload['hasPassword'];
   const connectionReadyValue = payload['connectionReady'];
+  const dbHost = toOptionalString(payload['db_host'] ?? payload['dbHost']);
+  const dbPort = toOptionalNumber(payload['db_port'] ?? payload['dbPort']);
+  const dbUser = toOptionalString(payload['db_user'] ?? payload['dbUser']);
+  const dbName = toOptionalString(payload['db_name'] ?? payload['dbName']);
+  const dbPasswordMaskedRaw =
+    payload['db_password_masked'] ?? payload['dbPasswordMasked'] ?? payload['db_pass_masked'];
+  const dbStatusRaw =
+    payload['db_connection_status'] ?? payload['dbConnectionStatus'] ?? payload['last_test_status'];
+  const dbMessage = toOptionalString(
+    payload['db_connection_message'] ?? payload['dbConnectionMessage'] ?? payload['last_test_message'],
+  );
+  const dbTestedAt = toOptionalString(payload['db_tested_at'] ?? payload['dbTestedAt'] ?? payload['last_test_at']);
+  const dbConnectionReadyValue =
+    payload['dbConnectionReady'] ?? payload['db_connection_ready'] ?? (dbStatusRaw === 'success');
+
+  const dbStatusText = toOptionalString(dbStatusRaw);
+  const dbConnectionStatus =
+    dbStatusText && (dbStatusText === 'success' || dbStatusText === 'error')
+      ? (dbStatusText as 'success' | 'error')
+      : null;
+  const dbPasswordMasked =
+    typeof dbPasswordMaskedRaw === 'boolean'
+      ? dbPasswordMaskedRaw
+      : dbPasswordMaskedRaw === '1' || dbPasswordMaskedRaw === 'true';
 
   const normalized: UserConfigData = {
     domain: domain ?? null,
@@ -92,6 +116,16 @@ function normalizeUserSettings(raw: RawUserSettings): UserConfigData | null {
     hasPassword: typeof hasPasswordValue === 'boolean' ? (hasPasswordValue as boolean) : Boolean(password),
     connectionReady: typeof connectionReadyValue === 'boolean' ? (connectionReadyValue as boolean) : undefined,
     xuiDbUri: xuiDbUri ?? null,
+    dbHost: dbHost ?? null,
+    dbPort,
+    dbUser: dbUser ?? null,
+    dbName: dbName ?? null,
+    dbPasswordMasked,
+    dbConnectionStatus,
+    dbConnectionMessage: dbMessage ?? null,
+    dbTestedAt: dbTestedAt ?? null,
+    dbConnectionReady:
+      typeof dbConnectionReadyValue === 'boolean' ? (dbConnectionReadyValue as boolean) : undefined,
   };
 
   return normalized;
@@ -119,9 +153,28 @@ export interface SaveUserSettingsPayload {
   username?: string | null;
   password?: string | null;
   active?: boolean;
+  db_host?: string | null;
+  db_port?: number | null;
+  db_user?: string | null;
+  db_password?: string | null;
+  db_name?: string | null;
 }
 
 export async function saveUserSettings(payload: SaveUserSettingsPayload): Promise<UserConfigData | null> {
   const response = await put<RawUserSettings>('/api/settings', payload);
   return normalizeUserSettings(response);
+}
+
+export interface TestDatabaseResponse {
+  success: boolean;
+  message: string;
+  status?: 'success' | 'error';
+  testedAt?: string | null;
+}
+
+export async function testDatabaseConnection(
+  payload: Partial<SaveUserSettingsPayload>,
+): Promise<TestDatabaseResponse> {
+  const response = await post<TestDatabaseResponse>('/api/settings/test-db', payload);
+  return response;
 }

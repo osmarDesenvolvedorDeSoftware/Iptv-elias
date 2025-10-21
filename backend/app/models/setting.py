@@ -18,6 +18,11 @@ class Setting(db.Model):
     )
     key = db.Column(db.String(100), nullable=False)
     value = db.Column(db.JSON, nullable=False, default=dict)
+    db_host = db.Column(db.String(255), nullable=True)
+    db_port = db.Column(db.Integer, nullable=True)
+    db_user = db.Column(db.String(255), nullable=True)
+    db_password = db.Column(db.String(512), nullable=True)
+    db_name = db.Column(db.String(255), nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     user = db.relationship(
@@ -42,6 +47,10 @@ class Setting(db.Model):
             "user_id": self.user_id,
             "key": self.key,
             "value": self.value,
+            "db_host": self.db_host,
+            "db_port": self.db_port,
+            "db_user": self.db_user,
+            "db_name": self.db_name,
             "updated_at": self.updated_at.isoformat() + "Z" if self.updated_at else None,
         }
 

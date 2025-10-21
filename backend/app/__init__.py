@@ -43,6 +43,7 @@ def register_blueprints(app: Flask) -> None:
     from .api.imports import bp as imports_bp
     from .api.metrics import bp as metrics_bp
     from .api.tenants import bp as tenants_bp
+    from .api.user_settings import bp as user_settings_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -54,6 +55,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(imports_bp)
     app.register_blueprint(metrics_bp)
     app.register_blueprint(tenants_bp)
+    app.register_blueprint(user_settings_bp)
 
 
 def create_app(config_object: type[Config] | None = None) -> Flask:

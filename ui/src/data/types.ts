@@ -33,6 +33,15 @@ export interface UserConfigData {
   hasPassword?: boolean;
   connectionReady?: boolean;
   xuiDbUri?: string | null;
+  dbHost?: string | null;
+  dbPort?: number | null;
+  dbUser?: string | null;
+  dbName?: string | null;
+  dbPasswordMasked?: boolean;
+  dbConnectionStatus?: 'success' | 'error' | null;
+  dbConnectionMessage?: string | null;
+  dbTestedAt?: string | null;
+  dbConnectionReady?: boolean;
 }
 
 export interface AdminUserPanelSummary {
