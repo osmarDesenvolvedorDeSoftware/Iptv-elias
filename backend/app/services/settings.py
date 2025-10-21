@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, Iterable, Mapping, Tuple
@@ -17,6 +18,14 @@ from werkzeug.exceptions import Unauthorized
 
 from ..extensions import db
 from ..models import Setting, TenantIntegrationConfig, User
+from .mysql_errors import (
+    SSL_MISCONFIG_ERROR_CODE,
+    SSL_MISCONFIG_ERROR_MESSAGE,
+    is_ssl_misconfiguration_error,
+)
+
+logger = logging.getLogger(__name__)
+
 
 _GENERAL_KEY = "general"
 _SENSITIVE_FIELDS = {"db_pass", "xtream_pass", "tmdb_key"}
@@ -466,9 +475,31 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
-        message = str(exc.__cause__ or exc)
         stored_value = _merge_defaults(setting.value if setting else None)
         stored_value["last_test_status"] = "error"
+        if is_ssl_misconfiguration_error(exc):
+            logger.warning(
+                "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
+                data.db_host,
+                data.db_user,
+            )
+            stored_value["last_test_message"] = SSL_MISCONFIG_ERROR_MESSAGE
+            stored_value["last_test_at"] = datetime.utcnow().isoformat() + "Z"
+            _persist_setting(tenant_id, user_id, stored_value, setting)
+            return (
+                False,
+                SSL_MISCONFIG_ERROR_MESSAGE,
+                {
+                    "status": "error",
+                    "testedAt": stored_value["last_test_at"],
+                    "error": {
+                        "code": SSL_MISCONFIG_ERROR_CODE,
+                        "message": SSL_MISCONFIG_ERROR_MESSAGE,
+                    },
+                },
+            )
+
+        message = str(exc.__cause__ or exc)
         stored_value["last_test_message"] = message
         stored_value["last_test_at"] = datetime.utcnow().isoformat() + "Z"
         _persist_setting(tenant_id, user_id, stored_value, setting)
