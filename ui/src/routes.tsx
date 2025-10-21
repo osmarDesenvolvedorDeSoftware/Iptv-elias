@@ -1,6 +1,6 @@
 import { ComponentType, LazyExoticComponent, lazy } from 'react';
 
-const DashboardPage = lazy(() => import('./routes/DashboardPlaceholder'));
+const DashboardPage = lazy(() => import('./routes/Dashboard'));
 const ImportacaoPage = lazy(() => import('./routes/Importacao'));
 const BouquetsPage = lazy(() => import('./routes/Bouquets'));
 const LogsPage = lazy(() => import('./routes/Logs'));

@@ -1,0 +1,110 @@
+{
+  "tenantCount": 4,
+  "totalJobs": 312,
+  "statusSummary": [
+    { "status": "success", "count": 24 },
+    { "status": "error", "count": 3 },
+    { "status": "running", "count": 2 }
+  ],
+  "tenants": [
+    {
+      "tenantId": "tenant-123",
+      "tenantName": "Loja Matriz",
+      "lastSyncAt": "2024-06-05T12:45:00Z",
+      "status": "success"
+    },
+    {
+      "tenantId": "tenant-456",
+      "tenantName": "Filial Rio",
+      "lastSyncAt": "2024-06-05T12:12:00Z",
+      "status": "running"
+    },
+    {
+      "tenantId": "tenant-789",
+      "tenantName": "Filial Recife",
+      "lastSyncAt": "2024-06-04T21:20:00Z",
+      "status": "error"
+    },
+    {
+      "tenantId": "tenant-321",
+      "tenantName": "Parceiro Streaming",
+      "lastSyncAt": "2024-06-05T08:05:00Z",
+      "status": "success"
+    }
+  ],
+  "jobHistory": [
+    { "date": "2024-05-31T00:00:00Z", "total": 42, "success": 38, "failed": 3, "running": 1 },
+    { "date": "2024-06-01T00:00:00Z", "total": 51, "success": 47, "failed": 4, "running": 0 },
+    { "date": "2024-06-02T00:00:00Z", "total": 48, "success": 43, "failed": 5, "running": 0 },
+    { "date": "2024-06-03T00:00:00Z", "total": 56, "success": 53, "failed": 2, "running": 1 },
+    { "date": "2024-06-04T00:00:00Z", "total": 62, "success": 59, "failed": 2, "running": 1 },
+    { "date": "2024-06-05T00:00:00Z", "total": 53, "success": 49, "failed": 3, "running": 1 }
+  ],
+  "averageImportDuration": [
+    { "date": "2024-05-31T00:00:00Z", "averageSeconds": 312 },
+    { "date": "2024-06-01T00:00:00Z", "averageSeconds": 298 },
+    { "date": "2024-06-02T00:00:00Z", "averageSeconds": 276 },
+    { "date": "2024-06-03T00:00:00Z", "averageSeconds": 289 },
+    { "date": "2024-06-04T00:00:00Z", "averageSeconds": 265 },
+    { "date": "2024-06-05T00:00:00Z", "averageSeconds": 241 }
+  ],
+  "streamVolume": [
+    { "date": "2024-05-31T00:00:00Z", "movies": 326, "series": 182 },
+    { "date": "2024-06-01T00:00:00Z", "movies": 358, "series": 204 },
+    { "date": "2024-06-02T00:00:00Z", "movies": 341, "series": 198 },
+    { "date": "2024-06-03T00:00:00Z", "movies": 372, "series": 216 },
+    { "date": "2024-06-04T00:00:00Z", "movies": 389, "series": 224 },
+    { "date": "2024-06-05T00:00:00Z", "movies": 367, "series": 210 }
+  ],
+  "recentJobs": [
+    {
+      "id": "9721",
+      "name": "Importação diária",
+      "status": "success",
+      "startedAt": "2024-06-05T12:30:00Z",
+      "finishedAt": "2024-06-05T12:44:00Z",
+      "tenantName": "Loja Matriz",
+      "durationSeconds": 840,
+      "type": "filmes"
+    },
+    {
+      "id": "9718",
+      "name": "Sincronização catálogo séries",
+      "status": "running",
+      "startedAt": "2024-06-05T12:18:00Z",
+      "tenantName": "Filial Rio",
+      "type": "series"
+    },
+    {
+      "id": "9717",
+      "name": "Importação emergência",
+      "status": "error",
+      "startedAt": "2024-06-05T10:52:00Z",
+      "finishedAt": "2024-06-05T11:06:00Z",
+      "tenantName": "Filial Recife",
+      "durationSeconds": 840,
+      "message": "Falha na autenticação externa"
+    },
+    {
+      "id": "9715",
+      "name": "Atualização catálogo",
+      "status": "success",
+      "startedAt": "2024-06-05T08:10:00Z",
+      "finishedAt": "2024-06-05T08:19:00Z",
+      "tenantName": "Parceiro Streaming",
+      "durationSeconds": 540,
+      "type": "filmes"
+    },
+    {
+      "id": "9713",
+      "name": "Importação programada",
+      "status": "success",
+      "startedAt": "2024-06-04T23:40:00Z",
+      "finishedAt": "2024-06-04T23:55:00Z",
+      "tenantName": "Loja Matriz",
+      "durationSeconds": 900,
+      "type": "series"
+    }
+  ],
+  "lastUpdatedAt": "2024-06-05T12:45:10Z"
+}

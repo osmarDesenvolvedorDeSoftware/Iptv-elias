@@ -4,6 +4,7 @@ export interface User {
   email: string;
   role: string;
   tenantId: string;
+  tenantName?: string;
 }
 
 export interface AuthLoginResponse {
