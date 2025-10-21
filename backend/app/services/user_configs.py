@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Tuple
 from urllib.parse import quote_plus, urlparse
 
+import bcrypt
 from flask import current_app
 
 from ..extensions import db
@@ -69,6 +70,9 @@ def get_user_config(user: User) -> UserConfig:
 
     config = _ensure_user_config(user)
     resolved_uri = resolve_xui_db_uri(config)
+    if resolved_uri and config.xui_db_uri != resolved_uri:
+        config.xui_db_uri = resolved_uri
+        db.session.commit()
     setattr(config, "resolved_xui_db_uri", resolved_uri)
     return config
 
@@ -106,10 +110,14 @@ def update_user_config(user: User, payload: dict[str, Any]) -> Tuple[UserConfig,
     if username is not None:
         config.api_username = username.strip() or None
 
-    password = payload.get("password")
-    if password is not None:
-        password = str(password).strip()
-        config.api_password = password or config.api_password
+    password_input = payload.get("password")
+    new_password: str | None = None
+    if password_input is not None:
+        candidate = str(password_input).strip()
+        if candidate:
+            config.api_password = candidate
+            config.password_hash = bcrypt.hashpw(candidate.encode(), bcrypt.gensalt()).decode()
+            new_password = candidate
 
     active = payload.get("active")
     if active is not None:
@@ -134,12 +142,14 @@ def update_user_config(user: User, payload: dict[str, Any]) -> Tuple[UserConfig,
         integration.xtream_base_url = None
 
     integration.xtream_username = config.api_username
-    if password is not None and password:
-        integration.xtream_password = password
+    if new_password is not None:
+        integration.xtream_password = new_password
     integration.options = integration.options or {}
     integration.options["active"] = config.active
 
     resolved_uri = resolve_xui_db_uri(config)
+    if resolved_uri:
+        config.xui_db_uri = resolved_uri
     setattr(config, "resolved_xui_db_uri", resolved_uri)
     integration.xui_db_uri = resolved_uri
 

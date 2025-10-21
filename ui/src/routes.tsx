@@ -1,7 +1,7 @@
 import { ComponentType, LazyExoticComponent, lazy } from 'react';
 
 const HomeRedirect = lazy(() => import('./routes/Home'));
-const UserDashboardPage = lazy(() => import('./routes/UserDashboard'));
+const AccountConfigPage = lazy(() => import('./routes/AccountConfig'));
 const AdminDashboardPage = lazy(() => import('./routes/AdminDashboard'));
 const ImportacaoPage = lazy(() => import('./routes/Importacao'));
 const BouquetsPage = lazy(() => import('./routes/Bouquets'));
@@ -22,7 +22,7 @@ export type RouteConfig = {
 
 export const appRoutes: RouteConfig[] = [
   { path: '/', element: HomeRedirect },
-  { path: '/dashboard', element: UserDashboardPage, roles: ['user'] },
+  { path: '/dashboard', element: AccountConfigPage, roles: ['user'] },
   { path: '/admin/dashboard', element: AdminDashboardPage, roles: ['admin'] },
   { path: '/importacao', element: ImportacaoPage, roles: ['admin'] },
   { path: '/bouquets', element: BouquetsPage, roles: ['admin'] },

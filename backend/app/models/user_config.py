@@ -16,6 +16,7 @@ class UserConfig(db.Model):
     api_username = db.Column("usuario_api", db.String(255), nullable=True)
     api_password = db.Column("senha_api", db.String(512), nullable=True)
     xui_db_uri = db.Column(db.String(512), nullable=True)
+    password_hash = db.Column(db.String(256), nullable=True)
     active = db.Column("ativo", db.Boolean, nullable=False, default=True)
     last_sync = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

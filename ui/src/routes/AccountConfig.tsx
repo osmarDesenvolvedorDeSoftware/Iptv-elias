@@ -1,15 +1,27 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
-import { fetchConfig, saveConfig, testConfig } from '../data/services/accountService';
+import { fetchConfig, parseM3U, saveAccountConfig } from '../data/services/accountService';
 import { getImports, runImport } from '../data/services/importerService';
-import { ImportJobHistoryItem, ImportType, UserConfigData } from '../data/types';
+import type {
+  AccountConfigPayload,
+  ImportJobHistoryItem,
+  ImportType,
+  ParsedM3UResponse,
+  UserConfigData,
+} from '../data/types';
 import { useToast } from '../providers/ToastProvider';
+
+interface StatusMessage {
+  type: 'success' | 'danger' | 'info';
+  message: string;
+}
 
 type JobSummary = Record<ImportType, ImportJobHistoryItem | null>;
 
-export default function UserDashboard() {
+export default function AccountConfig() {
   const { push } = useToast();
+  const [link, setLink] = useState('');
   const [config, setConfig] = useState<UserConfigData | null>(null);
   const [formState, setFormState] = useState({
     domain: '',
@@ -19,12 +31,12 @@ export default function UserDashboard() {
     active: true,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [testMessage, setTestMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<StatusMessage | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobSummary>({ filmes: null, series: null });
   const [syncing, setSyncing] = useState<ImportType | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const hasExistingPassword = config?.hasPassword && !formState.password;
 
@@ -64,6 +76,7 @@ export default function UserDashboard() {
         if (cancelled) {
           return;
         }
+
         setConfig(response);
         setFormState({
           domain: response.domain ?? '',
@@ -72,6 +85,11 @@ export default function UserDashboard() {
           password: '',
           active: response.active,
         });
+
+        if (response.connectionReady) {
+          setStatus({ type: 'success', message: 'Conexão com o XUI configurada.' });
+        }
+
         await loadImports();
       } catch (err) {
         if (!cancelled) {
@@ -92,21 +110,52 @@ export default function UserDashboard() {
     };
   }, [loadImports]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleParse(event: FormEvent<HTMLButtonElement>) {
     event.preventDefault();
-
-    if (isSaving) {
+    if (!link.trim() || isParsing) {
       return;
     }
 
-    setIsSaving(true);
+    setIsParsing(true);
+    setStatus(null);
     setError(null);
 
+    try {
+      const parsed: ParsedM3UResponse = await parseM3U(link.trim());
+      setFormState((prev) => ({
+        ...prev,
+        domain: parsed.domain ?? '',
+        port: parsed.port ? String(parsed.port) : '',
+        username: parsed.username ?? '',
+        password: parsed.password ?? '',
+      }));
+      setStatus({ type: 'info', message: 'Dados extraídos do link M3U.' });
+      push({ type: 'success', message: 'Link M3U analisado com sucesso.' });
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError?.message ?? 'Não foi possível extrair os dados do link M3U.');
+    } finally {
+      setIsParsing(false);
+    }
+  }
+
+  async function handleTestConnection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isTesting) {
+      return;
+    }
+
+    setIsTesting(true);
+    setError(null);
+    setStatus(null);
+
+    const trimmedDomain = formState.domain.trim();
+    const trimmedUsername = formState.username.trim();
     const trimmedPort = formState.port.trim();
-    const payload: Partial<UserConfigData> & { password?: string | null } = {
-      domain: formState.domain.trim() || null,
-      port: null,
-      username: formState.username.trim() || null,
+
+    const payload: AccountConfigPayload = {
+      domain: trimmedDomain || null,
+      username: trimmedUsername || null,
       active: formState.active,
     };
 
@@ -114,45 +163,34 @@ export default function UserDashboard() {
       const numericPort = Number(trimmedPort);
       if (Number.isNaN(numericPort)) {
         setError('Porta inválida.');
-        setIsSaving(false);
+        setIsTesting(false);
         return;
       }
       payload.port = numericPort;
     }
 
-    if (formState.password) {
-      payload.password = formState.password;
+    const trimmedPassword = formState.password.trim();
+    if (trimmedPassword) {
+      payload.password = trimmedPassword;
+    }
+
+    if (link.trim()) {
+      payload.link_m3u = link.trim();
     }
 
     try {
-      const response = await saveConfig(payload);
+      const response = await saveAccountConfig(payload);
       setConfig(response);
       setFormState((prev) => ({ ...prev, password: '' }));
-      push({ type: 'success', message: 'Configuração salva com sucesso.' });
+      const successMessage = response.connectionReady
+        ? 'Conexão validada e salva com sucesso.'
+        : 'Configuração salva, mas a conexão não pôde ser validada.';
+      setStatus({ type: response.connectionReady ? 'success' : 'danger', message: successMessage });
+      push({ type: 'success', message: 'Configuração atualizada.' });
+      await loadImports();
     } catch (err) {
       const apiError = err as ApiError;
-      setError(apiError?.message ?? 'Não foi possível salvar a configuração.');
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function handleTest() {
-    if (isTesting) {
-      return;
-    }
-
-    setIsTesting(true);
-    setTestMessage(null);
-    setError(null);
-
-    try {
-      const response = await testConfig();
-      setTestMessage(response.message);
-      push({ type: 'success', message: 'Conexão validada com sucesso.' });
-    } catch (err) {
-      const apiError = err as ApiError;
-      setError(apiError?.message ?? 'Não foi possível testar a conexão.');
+      setError(apiError?.message ?? 'Não foi possível validar a conexão.');
     } finally {
       setIsTesting(false);
     }
@@ -181,8 +219,10 @@ export default function UserDashboard() {
     <section className="dashboard dashboard--user">
       <header className="dashboard__header">
         <div>
-          <h1 className="dashboard__title">Configuração da conta</h1>
-          <p className="dashboard__subtitle">Cadastre os dados da sua conta IPTV e acompanhe as sincronizações.</p>
+          <h1 className="dashboard__title">Configurar Painel XUI</h1>
+          <p className="dashboard__subtitle">
+            Cole o link M3U fornecido pela operadora e valide a conexão com o banco XUI.
+          </p>
         </div>
         <span className="dashboard__timestamp" aria-live="polite">
           {lastSyncLabel}
@@ -195,8 +235,40 @@ export default function UserDashboard() {
         </div>
       ) : null}
 
-      <form className="card p-4 mb-4" onSubmit={handleSubmit}>
+      {status ? (
+        <div className={`alert alert-${status.type} mb-4`} role="status">
+          {status.message}
+        </div>
+      ) : null}
+
+      <form className="card p-4 mb-4" onSubmit={handleTestConnection}>
         <div className="row g-3">
+          <div className="col-12 col-lg-9">
+            <label className="form-label" htmlFor="link">
+              Link M3U
+            </label>
+            <input
+              id="link"
+              name="link"
+              type="text"
+              className="form-control"
+              placeholder="https://painel.tv/get.php?username=USUARIO&password=SENHA&type=m3u"
+              value={link}
+              onChange={(event) => setLink(event.target.value)}
+              disabled={isLoading || isParsing || isTesting}
+            />
+          </div>
+          <div className="col-12 col-lg-3 d-flex align-items-end">
+            <button
+              type="button"
+              className="btn btn-outline-primary w-100"
+              onClick={handleParse}
+              disabled={isParsing || isLoading || !link.trim()}
+            >
+              {isParsing ? 'Extraindo…' : 'Extrair dados'}
+            </button>
+          </div>
+
           <div className="col-md-6">
             <label className="form-label" htmlFor="domain">
               Domínio ou IP
@@ -206,10 +278,10 @@ export default function UserDashboard() {
               name="domain"
               type="text"
               className="form-control"
-              placeholder="ex: servidor.iptv.com"
+              placeholder="ex: painel.exemplo.com"
               value={formState.domain}
               onChange={(event) => setFormState((prev) => ({ ...prev, domain: event.target.value }))}
-              disabled={isLoading || isSaving}
+              disabled={isLoading || isTesting}
               required
             />
           </div>
@@ -228,7 +300,7 @@ export default function UserDashboard() {
               placeholder="80"
               value={formState.port}
               onChange={(event) => setFormState((prev) => ({ ...prev, port: event.target.value }))}
-              disabled={isLoading || isSaving}
+              disabled={isLoading || isTesting}
             />
           </div>
 
@@ -244,7 +316,7 @@ export default function UserDashboard() {
               placeholder="usuario"
               value={formState.username}
               onChange={(event) => setFormState((prev) => ({ ...prev, username: event.target.value }))}
-              disabled={isLoading || isSaving}
+              disabled={isLoading || isTesting}
               required
             />
           </div>
@@ -258,11 +330,12 @@ export default function UserDashboard() {
               name="password"
               type="password"
               className="form-control"
-              placeholder={hasExistingPassword ? 'Manter senha atual' : 'Digite a senha fornecida pela operadora'}
+              placeholder={hasExistingPassword ? 'Manter senha atual' : 'Senha do painel'}
               value={formState.password}
               onChange={(event) => setFormState((prev) => ({ ...prev, password: event.target.value }))}
-              disabled={isLoading || isSaving}
+              disabled={isLoading || isTesting}
               minLength={4}
+              required={!hasExistingPassword}
             />
           </div>
 
@@ -275,7 +348,7 @@ export default function UserDashboard() {
                 className="form-check-input"
                 checked={formState.active}
                 onChange={(event) => setFormState((prev) => ({ ...prev, active: event.target.checked }))}
-                disabled={isLoading || isSaving}
+                disabled={isLoading || isTesting}
               />
               <label className="form-check-label" htmlFor="active">
                 Ativar sincronizações automáticas
@@ -285,27 +358,17 @@ export default function UserDashboard() {
         </div>
 
         <div className="d-flex flex-wrap gap-2 mt-4">
-          <button type="submit" className="btn btn-primary" disabled={isSaving || isLoading}>
-            {isSaving ? 'Salvando…' : 'Salvar configuração'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-outline-secondary"
-            onClick={() => void handleTest()}
-            disabled={isTesting || isLoading}
-          >
-            {isTesting ? 'Testando…' : 'Testar conexão'}
+          <button type="submit" className="btn btn-primary" disabled={isTesting || isLoading}>
+            {isTesting ? 'Validando…' : 'Testar conexão'}
           </button>
         </div>
-
-        {testMessage ? (
-          <p className="text-success mt-3 mb-0">{testMessage}</p>
-        ) : null}
       </form>
 
       <section className="card p-4">
         <h2 className="h5 mb-3">Sincronizações</h2>
-        <p className="text-muted">Inicie as importações dos catálogos de filmes e séries. Você receberá notificações ao concluir.</p>
+        <p className="text-muted">
+          Inicie as importações dos catálogos de filmes e séries. Você receberá notificações ao concluir.
+        </p>
 
         <div className="row g-3">
           <div className="col-md-6">
