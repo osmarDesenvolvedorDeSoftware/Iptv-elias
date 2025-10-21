@@ -13,6 +13,16 @@ const navigation = [
   { label: 'Configurações', to: '/configuracoes' },
 ];
 
+function createInitials(name: string): string {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('')
+    .padEnd(2, '•');
+}
+
 export function AppLayout({ children }: PropsWithChildren) {
   const { mode, toggle } = useTheme();
   const { isAuthenticated, isLoading, user, logout } = useAuth();
@@ -43,9 +53,17 @@ export function AppLayout({ children }: PropsWithChildren) {
             <button type="button" className="app-shell__action" onClick={toggle}>
               Tema: {mode === 'light' ? '🌞' : '🌙'}
             </button>
-            <span className="app-shell__action">
-              {user ? user.name : 'Usuário'}
-            </span>
+
+            <div className="app-shell__profile" title={user?.tenantName ?? user?.tenantId ?? 'Tenant não definido'}>
+              <span className="app-shell__avatar" aria-hidden="true">
+                {createInitials(user?.name ?? 'Usuário')}
+              </span>
+              <div className="app-shell__profile-info">
+                <span className="app-shell__profile-name">{user?.name ?? 'Usuário'}</span>
+                <span className="app-shell__profile-tenant">{user?.tenantName ?? user?.tenantId ?? 'Sem tenant'}</span>
+              </div>
+            </div>
+
             <button type="button" className="app-shell__action" onClick={logout}>
               Sair
             </button>
