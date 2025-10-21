@@ -8,6 +8,7 @@ import type { ApiError } from '../data/adapters/ApiAdapter';
 import { useConfig } from '../hooks/useConfig';
 import { useToast } from '../providers/ToastProvider';
 import {
+  DB_ACCESS_DENIED_CODE,
   extractDbAccessDeniedMessage,
   extractDbAccessDeniedMessageFromApiError,
   extractDbAccessDeniedHint,
@@ -71,15 +72,30 @@ function buildPayload(form: ConfigFormState): SaveConfigPayload {
   };
 }
 
-function createAccessDeniedContent(message: string | null | undefined, hint: string | null | undefined) {
-  const normalizedMessage =
-    typeof message === 'string' && message.trim().length > 0
-      ? message.trim()
-      : getDbAccessDeniedFallbackMessage();
+interface AccessDeniedContentOptions {
+  error?: { code?: string | null; message?: string | null } | null;
+  fallbackMessage?: string | null | undefined;
+  hint?: string | null | undefined;
+}
+
+function createAccessDeniedContent({
+  error,
+  fallbackMessage,
+  hint,
+}: AccessDeniedContentOptions) {
+  const messageSource = [fallbackMessage, error?.message].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  );
+
+  const normalizedError = {
+    code: error?.code ?? DB_ACCESS_DENIED_CODE,
+    message: messageSource ? messageSource.trim() : getDbAccessDeniedFallbackMessage(),
+  };
+
   const normalizedHint =
     typeof hint === 'string' && hint.trim().length > 0 ? hint.trim() : null;
 
-  return <DbAccessDeniedNotice message={normalizedMessage} hint={normalizedHint} />;
+  return <DbAccessDeniedNotice error={normalizedError} hint={normalizedHint} />;
 }
 
 export default function Configuracoes() {
@@ -210,7 +226,12 @@ export default function Configuracoes() {
       if (isAccessDenied(apiError)) {
         const message = extractDbAccessDeniedMessageFromApiError(apiError);
         const hint = extractDbAccessDeniedHintFromApiError(apiError);
-        push(createAccessDeniedContent(message, hint), 'error', { duration: 10000 });
+        const notice = createAccessDeniedContent({
+          error: { code: apiError?.code, message: apiError?.message },
+          fallbackMessage: message,
+          hint,
+        });
+        push(notice, 'error', { duration: 15000 });
       } else {
         push(apiError?.message ?? 'Não foi possível salvar as configurações.', 'error');
       }
@@ -227,31 +248,48 @@ export default function Configuracoes() {
     try {
       const payload = buildPayload(form);
       const result = await testConnection(payload);
-      if (result.success) {
-        push(result.message || 'Conexão validada com sucesso.', 'success');
-        return;
-      }
 
-      if (isAccessDenied(result)) {
-        const message = extractDbAccessDeniedMessage(result);
-        const hint = extractDbAccessDeniedHint(result);
-        push(createAccessDeniedContent(message, hint), 'error', { duration: 10000 });
+      if (result.error?.code === DB_ACCESS_DENIED_CODE || isAccessDenied(result)) {
+        const notice = createAccessDeniedContent({
+          error: result.error,
+          fallbackMessage:
+            extractDbAccessDeniedMessage(result) ??
+            result.error?.message ??
+            result.message,
+          hint: result.hint ?? extractDbAccessDeniedHint(result),
+        });
+        push(notice, 'error', { duration: 15000 });
         return;
       }
 
       const sslMessage = extractDbSslMisconfigMessage(result);
 
+      if (result.success === false) {
+        if (sslMessage) {
+          push(`⚠️ ${sslMessage}`, 'error');
+        } else {
+          push(result.error?.message || result.message || 'Falha ao testar conexão.', 'error');
+        }
+        return;
+      }
+
       if (sslMessage) {
         push(`⚠️ ${sslMessage}`, 'error');
-      } else {
-        push(result.message || 'Falha ao testar conexão.', 'error');
+        return;
       }
+
+      push(result.message || 'Conexão validada com sucesso.', 'success');
     } catch (err) {
       const apiError = err as ApiError;
       if (isAccessDenied(apiError)) {
         const message = extractDbAccessDeniedMessageFromApiError(apiError);
         const hint = extractDbAccessDeniedHintFromApiError(apiError);
-        push(createAccessDeniedContent(message, hint), 'error', { duration: 10000 });
+        const notice = createAccessDeniedContent({
+          error: { code: apiError?.code, message: apiError?.message },
+          fallbackMessage: message,
+          hint,
+        });
+        push(notice, 'error', { duration: 15000 });
       } else {
         const sslMessage = extractDbSslMisconfigMessageFromApiError(apiError);
 
