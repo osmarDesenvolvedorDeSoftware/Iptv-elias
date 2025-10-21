@@ -15,6 +15,7 @@ class UserConfig(db.Model):
     port = db.Column("porta", db.Integer, nullable=True)
     api_username = db.Column("usuario_api", db.String(255), nullable=True)
     api_password = db.Column("senha_api", db.String(512), nullable=True)
+    xui_db_uri = db.Column(db.String(512), nullable=True)
     active = db.Column("ativo", db.Boolean, nullable=False, default=True)
     last_sync = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -28,6 +29,7 @@ class UserConfig(db.Model):
             "active": self.active,
             "lastSync": self.last_sync.isoformat() + "Z" if self.last_sync else None,
             "hasPassword": bool(self.api_password),
+            "xuiDbUri": getattr(self, "resolved_xui_db_uri", self.xui_db_uri),
         }
         if include_secret:
             payload["password"] = self.api_password
