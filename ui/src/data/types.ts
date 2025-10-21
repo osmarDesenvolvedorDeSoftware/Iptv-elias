@@ -76,6 +76,8 @@ export interface AdminUser extends User {
 
 export type ImportType = 'filmes' | 'series';
 
+export type ImportJobKind = ImportType | 'normalization' | 'normalize';
+
 export type ImportJobStatus = 'queued' | 'running' | 'finished' | 'failed';
 
 export interface ImportJobHistoryItem {
@@ -92,7 +94,7 @@ export interface ImportJobHistoryItem {
   etaSec?: number;
   trigger: string;
   user: string;
-  type?: ImportType;
+  type?: ImportJobKind;
   sourceTag?: string;
   sourceTagFilmes?: string;
   error?: string | null;
@@ -144,7 +146,7 @@ export interface NormalizationFailure {
 export type NormalizationInfo = NormalizationSuccess | NormalizationFailure;
 
 export interface JobDetail extends ImportJobHistoryItem {
-  type: ImportType;
+  type: ImportJobKind;
   createdAt: string;
   logCount: number;
 }
@@ -154,6 +156,10 @@ export interface JobLogEntry {
   createdAt: string;
   kind?: string;
   message?: string;
+  level?: string;
+  severity?: string;
+  domain?: string;
+  source?: string;
   [key: string]: unknown;
 }
 
@@ -161,6 +167,13 @@ export interface JobLogsResponse {
   items: JobLogEntry[];
   hasMore: boolean;
   nextAfter: number | null;
+}
+
+export interface ImportHistoryFilters {
+  page?: number;
+  pageSize?: number;
+  type?: ImportJobKind | '';
+  status?: ImportJobStatus | '';
 }
 
 export interface ImportQueueEntry {
@@ -227,7 +240,7 @@ export interface LogListFilters {
 export interface LogItem {
   id: number;
   jobId: number;
-  type: ImportType;
+  type: ImportJobKind;
   status: ImportJobStatus;
   startedAt: string;
   finishedAt: string;
@@ -237,6 +250,17 @@ export interface LogItem {
   ignored: number;
   errors: number;
   errorSummary?: string;
+  sourceTag?: string | null;
+  sourceTagFilmes?: string | null;
+  user?: string | null;
+  totals?: {
+    inserted?: number;
+    updated?: number;
+    ignored?: number;
+    errors?: number;
+  };
+  normalization?: NormalizationInfo;
+  logId?: number | null;
 }
 
 export interface LogListResponse {

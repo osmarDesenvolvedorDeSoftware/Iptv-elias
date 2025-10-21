@@ -18,6 +18,7 @@ interface UseConfigResult {
   saving: boolean;
   testing: boolean;
   resetting: boolean;
+  isValid: boolean;
   reload: () => Promise<void>;
   save: (payload: SaveConfigPayload) => Promise<GeneralSettings>;
   testConnection: (payload: Partial<SaveConfigPayload>) => Promise<ConfigTestResponse>;
@@ -96,6 +97,10 @@ export function useConfig(): UseConfigResult {
     }
   }, []);
 
+  const isValid = Boolean(
+    config?.connectionReady || (config?.lastTestStatus && config.lastTestStatus === 'success'),
+  );
+
   return {
     config,
     schema,
@@ -104,6 +109,7 @@ export function useConfig(): UseConfigResult {
     saving,
     testing,
     resetting,
+    isValid,
     reload: load,
     save,
     testConnection,

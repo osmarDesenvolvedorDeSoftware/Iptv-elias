@@ -6,7 +6,7 @@ import { useTheme } from '../providers/ThemeProvider';
 
 const adminNavigation = [
   { label: 'Dashboard', to: '/admin/dashboard' },
-  { label: 'Importação', to: '/importacao' },
+  { label: 'Importações', to: '/importacoes' },
   { label: 'Bouquets', to: '/bouquets' },
   { label: 'Relatórios & Logs', to: '/logs' },
   { label: 'Configurações', to: '/configuracoes' },

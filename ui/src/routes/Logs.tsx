@@ -2,7 +2,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
 import { LogModal } from '../components/LogModal';
-import { getLogs } from '../data/services/logService';
+import { getHistory } from '../data/services/importService';
 import { LogItem, LogListResponse } from '../data/types';
 
 interface FilterState {
@@ -100,7 +100,7 @@ export default function Logs() {
     setError(null);
 
     try {
-      const response = await getLogs();
+      const response = await getHistory();
       setData(response);
       setFilters((current) => ({
         ...current,
