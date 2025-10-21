@@ -3,8 +3,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0009_add_password_hash_to_user_configs"
-down_revision = "0008_add_xui_db_uri_to_user_configs"
+revision = "0009_add_user_password_hash"
+down_revision = "0008_add_xui_db_uri"
 branch_labels = None
 depends_on = None
 
