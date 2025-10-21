@@ -19,6 +19,7 @@ import type {
 } from '../data/types';
 import { useToast } from '../providers/ToastProvider';
 import {
+  DB_ACCESS_DENIED_CODE,
   extractDbAccessDeniedMessage,
   extractDbAccessDeniedMessageFromApiError,
   extractDbAccessDeniedHint,
@@ -50,15 +51,30 @@ interface FormState {
   dbName: string;
 }
 
-function createAccessDeniedContent(message: string | null | undefined, hint: string | null | undefined): ReactNode {
-  const normalizedMessage =
-    typeof message === 'string' && message.trim().length > 0
-      ? message.trim()
-      : getDbAccessDeniedFallbackMessage();
+interface AccessDeniedContentOptions {
+  error?: { code?: string | null; message?: string | null } | null;
+  fallbackMessage?: string | null | undefined;
+  hint?: string | null | undefined;
+}
+
+function createAccessDeniedContent({
+  error,
+  fallbackMessage,
+  hint,
+}: AccessDeniedContentOptions): ReactNode {
+  const messageSource = [fallbackMessage, error?.message].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  );
+
+  const normalizedError = {
+    code: error?.code ?? DB_ACCESS_DENIED_CODE,
+    message: messageSource ? messageSource.trim() : getDbAccessDeniedFallbackMessage(),
+  };
+
   const normalizedHint =
     typeof hint === 'string' && hint.trim().length > 0 ? hint.trim() : null;
 
-  return <DbAccessDeniedNotice message={normalizedMessage} hint={normalizedHint} />;
+  return <DbAccessDeniedNotice error={normalizedError} hint={normalizedHint} />;
 }
 
 export default function AccountConfig() {
@@ -350,10 +366,14 @@ export default function AccountConfig() {
       if (isAccessDenied(apiError)) {
         const message = extractDbAccessDeniedMessageFromApiError(apiError);
         const hint = extractDbAccessDeniedHintFromApiError(apiError);
-        const notice = createAccessDeniedContent(message, hint);
+        const notice = createAccessDeniedContent({
+          error: { code: apiError?.code, message: apiError?.message },
+          fallbackMessage: message,
+          hint,
+        });
         setStatus({ type: 'danger', message: notice });
         setError(null);
-        push(createAccessDeniedContent(message, hint), 'error', { duration: 10000 });
+        push(notice, 'error', { duration: 15000 });
       } else {
         setError(apiError?.message ?? 'Não foi possível validar a conexão.');
       }
@@ -407,18 +427,24 @@ export default function AccountConfig() {
 
     try {
       const response = await testDatabaseConnection(payload);
+
+      if (response.error?.code === DB_ACCESS_DENIED_CODE || isAccessDenied(response)) {
+        const notice = createAccessDeniedContent({
+          error: response.error,
+          fallbackMessage:
+            extractDbAccessDeniedMessage(response) ??
+            response.error?.message ??
+            response.message,
+          hint: response.hint ?? extractDbAccessDeniedHint(response),
+        });
+        setDbStatus({ type: 'danger', message: notice });
+        push(notice, 'error', { duration: 15000 });
+        return;
+      }
+
       const sslMessage = extractDbSslMisconfigMessage(response);
 
-      if (!response.success) {
-        if (isAccessDenied(response)) {
-          const message = extractDbAccessDeniedMessage(response);
-          const hint = extractDbAccessDeniedHint(response);
-          const notice = createAccessDeniedContent(message, hint);
-          setDbStatus({ type: 'danger', message: notice });
-          push(createAccessDeniedContent(message, hint), 'error', { duration: 10000 });
-          return;
-        }
-
+      if (response.success === false) {
         if (sslMessage) {
           setDbStatus({ type: 'danger', message: sslMessage });
           push(`⚠️ ${sslMessage}`, 'error');
@@ -426,7 +452,9 @@ export default function AccountConfig() {
         }
 
         const fallbackMessage =
-          response.message || 'Não foi possível validar a conexão com o banco.';
+          response.error?.message ||
+          response.message ||
+          'Não foi possível validar a conexão com o banco.';
         setDbStatus({ type: 'danger', message: fallbackMessage });
         push(fallbackMessage, 'error');
         return;
@@ -452,9 +480,13 @@ export default function AccountConfig() {
       if (isAccessDenied(apiError)) {
         const message = extractDbAccessDeniedMessageFromApiError(apiError);
         const hint = extractDbAccessDeniedHintFromApiError(apiError);
-        const notice = createAccessDeniedContent(message, hint);
+        const notice = createAccessDeniedContent({
+          error: { code: apiError?.code, message: apiError?.message },
+          fallbackMessage: message,
+          hint,
+        });
         setDbStatus({ type: 'danger', message: notice });
-        push(createAccessDeniedContent(message, hint), 'error', { duration: 10000 });
+        push(notice, 'error', { duration: 15000 });
       } else if (sslMessage) {
         setDbStatus({ type: 'danger', message: sslMessage });
         push(`⚠️ ${sslMessage}`, 'error');
@@ -572,10 +604,14 @@ export default function AccountConfig() {
       if (isAccessDenied(apiError)) {
         const message = extractDbAccessDeniedMessageFromApiError(apiError);
         const hint = extractDbAccessDeniedHintFromApiError(apiError);
-        const notice = createAccessDeniedContent(message, hint);
+        const notice = createAccessDeniedContent({
+          error: { code: apiError?.code, message: apiError?.message },
+          fallbackMessage: message,
+          hint,
+        });
         setStatus({ type: 'danger', message: notice });
         setError(null);
-        push(createAccessDeniedContent(message, hint), 'error', { duration: 10000 });
+        push(notice, 'error', { duration: 15000 });
       } else {
         setError(apiError?.message ?? 'Não foi possível salvar as configurações.');
       }
