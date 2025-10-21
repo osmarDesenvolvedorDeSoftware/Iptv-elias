@@ -394,6 +394,10 @@ export interface ConfigTestResponse {
   message: string;
   status: 'success' | 'error';
   testedAt?: string | null;
+  error?: {
+    code?: string;
+    message?: string;
+  } | null;
 }
 
 export interface XuiIntegrationOptions {

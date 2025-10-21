@@ -7,6 +7,10 @@ import { Bouquet, GeneralSettings, SaveConfigPayload } from '../data/types';
 import type { ApiError } from '../data/adapters/ApiAdapter';
 import { useConfig } from '../hooks/useConfig';
 import { useToast } from '../providers/ToastProvider';
+import {
+  extractDbSslMisconfigMessage,
+  extractDbSslMisconfigMessageFromApiError,
+} from '../utils/dbErrors';
 
 function createFormState(config: GeneralSettings): ConfigFormState {
   return {
@@ -199,14 +203,24 @@ export default function Configuracoes() {
     try {
       const payload = buildPayload(form);
       const result = await testConnection(payload);
+      const sslMessage = extractDbSslMisconfigMessage(result);
+
       if (result.success) {
         push(result.message || 'Conexão validada com sucesso.', 'success');
+      } else if (sslMessage) {
+        push(`⚠️ ${sslMessage}`, 'error');
       } else {
         push(result.message || 'Falha ao testar conexão.', 'error');
       }
     } catch (err) {
       const apiError = err as ApiError;
-      push(apiError?.message ?? 'Erro ao testar conexão.', 'error');
+      const sslMessage = extractDbSslMisconfigMessageFromApiError(apiError);
+
+      if (sslMessage) {
+        push(`⚠️ ${sslMessage}`, 'error');
+      } else {
+        push(apiError?.message ?? 'Erro ao testar conexão.', 'error');
+      }
     }
   }, [form, testConnection, push]);
 

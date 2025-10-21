@@ -18,6 +18,10 @@ import type {
   UserConfigData,
 } from '../data/types';
 import { useToast } from '../providers/ToastProvider';
+import {
+  extractDbSslMisconfigMessage,
+  extractDbSslMisconfigMessageFromApiError,
+} from '../utils/dbErrors';
 
 interface StatusMessage {
   type: 'success' | 'danger' | 'info';
@@ -376,6 +380,21 @@ export default function AccountConfig() {
 
     try {
       const response = await testDatabaseConnection(payload);
+      const sslMessage = extractDbSslMisconfigMessage(response);
+
+      if (!response.success) {
+        if (sslMessage) {
+          setDbStatus({ type: 'danger', message: sslMessage });
+          push(`⚠️ ${sslMessage}`, 'error');
+        } else {
+          setDbStatus({
+            type: 'danger',
+            message: response.message || 'Não foi possível validar a conexão com o banco.',
+          });
+        }
+        return;
+      }
+
       let message = response.message || 'Conexão estabelecida com sucesso.';
       if (response.testedAt) {
         try {
@@ -391,10 +410,17 @@ export default function AccountConfig() {
       push('Conexão com o banco verificada.', 'success');
     } catch (err) {
       const apiError = err as ApiError;
-      setDbStatus({
-        type: 'danger',
-        message: apiError?.message ?? 'Não foi possível validar a conexão com o banco.',
-      });
+      const sslMessage = extractDbSslMisconfigMessageFromApiError(apiError);
+
+      if (sslMessage) {
+        setDbStatus({ type: 'danger', message: sslMessage });
+        push(`⚠️ ${sslMessage}`, 'error');
+      } else {
+        setDbStatus({
+          type: 'danger',
+          message: apiError?.message ?? 'Não foi possível validar a conexão com o banco.',
+        });
+      }
     } finally {
       setIsTestingDb(false);
     }
