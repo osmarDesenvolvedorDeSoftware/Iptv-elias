@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Tuple
+from urllib.parse import quote_plus, urlparse
 
 from flask import current_app
 
@@ -27,16 +28,65 @@ def _ensure_integration(tenant_id: str) -> TenantIntegrationConfig:
     return integration
 
 
+def _extract_db_host(domain: str | None) -> str | None:
+    if not domain:
+        return None
+    candidate = domain.strip()
+    if not candidate:
+        return None
+    normalized = candidate
+    if not normalized.startswith(("http://", "https://")):
+        normalized = f"http://{normalized}"
+
+    parsed = urlparse(normalized)
+    hostname = parsed.hostname
+    if hostname:
+        return hostname
+    if ":" in candidate:
+        return candidate.split(":", 1)[0]
+    return candidate or None
+
+
+def resolve_xui_db_uri(config: UserConfig) -> str | None:
+    uri = config.xui_db_uri.strip() if isinstance(config.xui_db_uri, str) else None
+    if uri:
+        return uri
+
+    domain = _extract_db_host(config.domain)
+    username = config.api_username.strip() if isinstance(config.api_username, str) else None
+    password = config.api_password.strip() if isinstance(config.api_password, str) else None
+
+    if not domain or not username or not password:
+        return None
+
+    encoded_username = quote_plus(username)
+    encoded_password = quote_plus(password)
+    return f"mysql+pymysql://{encoded_username}:{encoded_password}@{domain}:3306/xui"
+
+
 def get_user_config(user: User) -> UserConfig:
     """Retorna a configuração do usuário, garantindo que exista."""
 
-    return _ensure_user_config(user)
+    config = _ensure_user_config(user)
+    resolved_uri = resolve_xui_db_uri(config)
+    setattr(config, "resolved_xui_db_uri", resolved_uri)
+    return config
 
 
 def update_user_config(user: User, payload: dict[str, Any]) -> Tuple[UserConfig, bool]:
     """Atualiza a configuração IPTV do usuário."""
 
     config = _ensure_user_config(user)
+
+    raw_xui_uri = payload.get("xuiDbUri")
+    if raw_xui_uri is None:
+        raw_xui_uri = payload.get("xui_db_uri")
+    if raw_xui_uri is not None:
+        if isinstance(raw_xui_uri, str):
+            trimmed_uri = raw_xui_uri.strip()
+        else:
+            trimmed_uri = str(raw_xui_uri).strip()
+        config.xui_db_uri = trimmed_uri or None
 
     domain = payload.get("domain")
     if domain is not None:
@@ -88,6 +138,10 @@ def update_user_config(user: User, payload: dict[str, Any]) -> Tuple[UserConfig,
         integration.xtream_password = password
     integration.options = integration.options or {}
     integration.options["active"] = config.active
+
+    resolved_uri = resolve_xui_db_uri(config)
+    setattr(config, "resolved_xui_db_uri", resolved_uri)
+    integration.xui_db_uri = resolved_uri
 
     db.session.commit()
 
