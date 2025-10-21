@@ -43,10 +43,10 @@ export default function AdminDashboard() {
     try {
       const response = await updateUser(target.id, { isActive: !target.isActive });
       setUsers((prev) => prev.map((item) => (item.id === target.id ? response.user : item)));
-      push({ type: 'success', message: 'Status atualizado com sucesso.' });
+      push('Status atualizado com sucesso.', 'success');
     } catch (err) {
       const apiError = err as ApiError;
-      push({ type: 'error', message: apiError?.message ?? 'Não foi possível atualizar o usuário.' });
+      push(apiError?.message ?? 'Não foi possível atualizar o usuário.', 'error');
     } finally {
       setUpdatingId(null);
     }
@@ -61,10 +61,10 @@ export default function AdminDashboard() {
     setUpdatingId(target.id);
     try {
       await updateUser(target.id, { password });
-      push({ type: 'success', message: 'Senha redefinida com sucesso.' });
+      push('Senha redefinida com sucesso.', 'success');
     } catch (err) {
       const apiError = err as ApiError;
-      push({ type: 'error', message: apiError?.message ?? 'Não foi possível redefinir a senha.' });
+      push(apiError?.message ?? 'Não foi possível redefinir a senha.', 'error');
     } finally {
       setUpdatingId(null);
     }
@@ -72,7 +72,7 @@ export default function AdminDashboard() {
 
   async function handleDelete(target: AdminUser) {
     if (target.id === currentUser?.id) {
-      push({ type: 'error', message: 'Você não pode remover a própria conta.' });
+      push('Você não pode remover a própria conta.', 'error');
       return;
     }
 
@@ -85,10 +85,10 @@ export default function AdminDashboard() {
     try {
       await deleteUser(target.id);
       setUsers((prev) => prev.filter((item) => item.id !== target.id));
-      push({ type: 'success', message: 'Usuário removido com sucesso.' });
+      push('Usuário removido com sucesso.', 'success');
     } catch (err) {
       const apiError = err as ApiError;
-      push({ type: 'error', message: apiError?.message ?? 'Não foi possível remover o usuário.' });
+      push(apiError?.message ?? 'Não foi possível remover o usuário.', 'error');
     } finally {
       setDeletingId(null);
     }

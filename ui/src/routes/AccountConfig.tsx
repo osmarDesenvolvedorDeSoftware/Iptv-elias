@@ -130,7 +130,7 @@ export default function AccountConfig() {
         password: parsed.password ?? '',
       }));
       setStatus({ type: 'info', message: 'Dados extraídos do link M3U.' });
-      push({ type: 'success', message: 'Link M3U analisado com sucesso.' });
+      push('Link M3U analisado com sucesso.', 'success');
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError?.message ?? 'Não foi possível extrair os dados do link M3U.');
@@ -186,7 +186,7 @@ export default function AccountConfig() {
         ? 'Conexão validada e salva com sucesso.'
         : 'Configuração salva, mas a conexão não pôde ser validada.';
       setStatus({ type: response.connectionReady ? 'success' : 'danger', message: successMessage });
-      push({ type: 'success', message: 'Configuração atualizada.' });
+      push('Configuração atualizada.', 'success');
       await loadImports();
     } catch (err) {
       const apiError = err as ApiError;
@@ -205,7 +205,7 @@ export default function AccountConfig() {
     setError(null);
     try {
       await runImport(type);
-      push({ type: 'info', message: `Sincronização de ${type} iniciada.` });
+      push(`Sincronização de ${type} iniciada.`, 'info');
       await loadImports();
     } catch (err) {
       const apiError = err as ApiError;
