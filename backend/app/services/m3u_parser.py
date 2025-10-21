@@ -2,55 +2,53 @@
 
 from __future__ import annotations
 
-import re
-from typing import Any
+import logging
 from urllib.parse import parse_qs, urlparse
 
 
-_M3U_REGEX = re.compile(
-    r"https?://([^:/]+)(?::(\d+))?.*username=([^&]+).*password=([^&]+)",
-    re.IGNORECASE,
-)
+LOGGER = logging.getLogger(__name__)
 
 
-def parse_m3u_link(link: str) -> dict[str, Any] | None:
-"""Extract Xtream credentials from an M3U link."""
+def parse_m3u_link(url: str) -> dict[str, str]:
+    """Extract Xtream credentials from an M3U link."""
 
-    if not isinstance(link, str):
-        return None
+    if not isinstance(url, str):
+        LOGGER.error("[M3U Parser] URL inválida: tipo %s", type(url).__name__)
+        raise ValueError("M3U link inválido ou incompleto")
 
-    candidate = link.strip()
+    candidate = url.strip()
     if not candidate:
-        return None
+        LOGGER.error("[M3U Parser] URL vazia fornecida")
+        raise ValueError("M3U link inválido ou incompleto")
 
-    try:
-        match = _M3U_REGEX.search(candidate)
-        if not match:
-            parsed = urlparse(candidate)
-            query = parse_qs(parsed.query)
-            username_values = query.get("username")
-            password_values = query.get("password")
-            if not username_values or not password_values:
-                return None
-            username = username_values[0]
-            password = password_values[0]
-            host = parsed.hostname or ""
-            port = parsed.port or 80
-        else:
-            host, port_text, username, password = match.groups()
-            port = int(port_text or 80)
+    parsed = urlparse(candidate)
+    params = parse_qs(parsed.query)
 
-        username = username.strip()
-        password = password.strip()
-        host = host.strip()
-        if not host or not username or not password:
-            return None
+    username_values = params.get("username")
+    password_values = params.get("password")
+    host = parsed.netloc.strip()
 
-        return {
-            "domain": host,
-            "port": int(port) if port else 80,
-            "username": username,
-            "password": password,
-        }
-    except Exception:
-        return None
+    if not host or not username_values or not password_values:
+        LOGGER.error(
+            "[M3U Parser] Dados incompletos: host=%s, username=%s, password=%s",
+            host,
+            bool(username_values),
+            bool(password_values),
+        )
+        raise ValueError("M3U link inválido ou incompleto")
+
+    username = username_values[0].strip()
+    password = password_values[0].strip()
+    if not username or not password:
+        LOGGER.error(
+            "[M3U Parser] Usuário ou senha vazios extraídos: username=%s", username
+        )
+        raise ValueError("M3U link inválido ou incompleto")
+
+    credentials = {
+        "host": host,
+        "username": username,
+        "password": password,
+    }
+    LOGGER.info("[M3U Parser] Host detectado: %s", host)
+    return credentials
