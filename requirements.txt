@@ -16,6 +16,7 @@ PyMySQL==1.1.0
 
 # Integrations
 requests==2.32.3
+cloudscraper==1.2.69
 tmdbv3api==1.9.0
 
 # Validation & Settings
