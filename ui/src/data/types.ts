@@ -5,6 +5,8 @@ export interface User {
   role: string;
   tenantId: string;
   tenantName?: string;
+  lastLogin?: string | null;
+  isActive?: boolean;
 }
 
 export interface AuthLoginResponse {
@@ -17,6 +19,38 @@ export interface AuthLoginResponse {
 export interface AuthRefreshResponse {
   token: string;
   expiresInSec: number;
+}
+
+export interface UserConfigData {
+  domain: string | null;
+  port: number | null;
+  username: string | null;
+  active: boolean;
+  lastSync?: string | null;
+  hasPassword?: boolean;
+  connectionReady?: boolean;
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  activeUsers: number;
+  totalJobs: number;
+  failedJobs: number;
+  lastSync?: string | null;
+}
+
+export interface AdminRecentError {
+  id: number;
+  type: string;
+  tenantId: string;
+  userId: number;
+  finishedAt?: string | null;
+  error?: string | null;
+}
+
+export interface AdminUser extends User {
+  createdAt?: string | null;
+  config?: UserConfigData | null;
 }
 
 export type ImportType = 'filmes' | 'series';

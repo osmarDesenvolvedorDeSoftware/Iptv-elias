@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
 import { login as loginService } from '../data/services/authService';
@@ -7,7 +7,7 @@ import { useAuth } from '../providers/AuthProvider';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { setSession, isAuthenticated, isLoading, mockCredentials } = useAuth();
+  const { setSession, isAuthenticated, isLoading, mockCredentials, user } = useAuth();
   const [email, setEmail] = useState(() => mockCredentials?.email ?? '');
   const [password, setPassword] = useState(() => mockCredentials?.password ?? '');
   const [error, setError] = useState<string | null>(null);
@@ -16,9 +16,10 @@ export default function Login() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      navigate('/importacao', { replace: true });
+      const target = user?.role === 'admin' ? '/admin/dashboard' : '/dashboard';
+      navigate(target, { replace: true });
     }
-  }, [isAuthenticated, isLoading, navigate]);
+  }, [isAuthenticated, isLoading, navigate, user?.role]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -39,7 +40,8 @@ export default function Login() {
     try {
       const response = await loginService({ email: email.trim(), password });
       setSession(response);
-      navigate('/importacao');
+      const target = response.user.role === 'admin' ? '/admin/dashboard' : '/dashboard';
+      navigate(target, { replace: true });
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError?.message ?? 'Não foi possível realizar o login no momento.');
@@ -102,8 +104,12 @@ export default function Login() {
         )}
       </button>
 
+      <p className="text-muted text-center mt-3 mb-0">
+        Não possui uma conta? <Link to="/register">Cadastre-se</Link>.
+      </p>
+
       {mockCredentials ? (
-        <p className="text-muted text-center mt-3 mb-0">
+        <p className="text-muted text-center mt-2 mb-0">
           Use <strong>{mockCredentials.email}</strong> com senha <strong>{mockCredentials.password}</strong> para autenticar no
           modo mock.
         </p>

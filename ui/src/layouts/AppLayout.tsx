@@ -1,16 +1,21 @@
-import { PropsWithChildren } from 'react';
+import { PropsWithChildren, useMemo } from 'react';
 import { NavLink, Navigate, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../providers/AuthProvider';
 import { useTheme } from '../providers/ThemeProvider';
 
-const navigation = [
-  { label: 'Dashboard', to: '/' },
-  { label: 'Tenants', to: '/tenants' },
+const adminNavigation = [
+  { label: 'Dashboard', to: '/admin/dashboard' },
   { label: 'Importação', to: '/importacao' },
   { label: 'Bouquets', to: '/bouquets' },
   { label: 'Relatórios & Logs', to: '/logs' },
   { label: 'Configurações', to: '/configuracoes' },
+  { label: 'Tenants', to: '/tenants' },
+];
+
+const userNavigation = [
+  { label: 'Dashboard', to: '/dashboard' },
+  { label: 'Logs', to: '/logs' },
 ];
 
 function createInitials(name: string): string {
@@ -27,6 +32,10 @@ export function AppLayout({ children }: PropsWithChildren) {
   const { mode, toggle } = useTheme();
   const { isAuthenticated, isLoading, user, logout } = useAuth();
 
+  const navigation = useMemo(() => {
+    return user?.role === 'admin' ? adminNavigation : userNavigation;
+  }, [user?.role]);
+
   if (!isLoading && !isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
@@ -34,7 +43,7 @@ export function AppLayout({ children }: PropsWithChildren) {
   return (
     <div className="app-shell">
       <aside className="app-shell__sidebar">
-        <div className="app-shell__brand">IPTV Admin</div>
+        <div className="app-shell__brand">Painel IPTV</div>
         <nav>
           <ul>
             {navigation.map((item) => (
