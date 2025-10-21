@@ -63,7 +63,14 @@ def movie_importer_setup():
             "series": {"categories": [], "prefixes": []},
         },
     }
-    importer = _MovieImporter(job=job, tenant_id="tenant1", repository=repository, xtream=xtream, options=options)
+    importer = _MovieImporter(
+        job=job,
+        tenant_id="tenant1",
+        user_id=42,
+        repository=repository,
+        xtream=xtream,
+        options=options,
+    )
     return job, repository, importer
 
 
@@ -139,7 +146,14 @@ def test_movie_importer_ignores_by_prefix(mock_flush, mock_add_all, mock_commit)
             "series": {"categories": [], "prefixes": []},
         },
     }
-    importer = _MovieImporter(job=job, tenant_id="tenant1", repository=repository, xtream=xtream, options=options)
+    importer = _MovieImporter(
+        job=job,
+        tenant_id="tenant1",
+        user_id=42,
+        repository=repository,
+        xtream=xtream,
+        options=options,
+    )
 
     importer.execute()
 

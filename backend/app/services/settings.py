@@ -163,6 +163,42 @@ def _merge_defaults(value: dict[str, Any] | None) -> dict[str, Any]:
     return merged
 
 
+def _normalize_optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return trimmed or None
+    return str(value)
+
+
+def _apply_db_columns(setting: Setting | None, value: dict[str, Any]) -> None:
+    if setting is None:
+        return
+
+    setting.db_host = _normalize_optional_string(value.get("db_host"))
+
+    port_value = value.get("db_port")
+    if port_value is None:
+        setting.db_port = None
+    else:
+        try:
+            setting.db_port = int(port_value)
+        except (TypeError, ValueError):
+            setting.db_port = None
+
+    setting.db_user = _normalize_optional_string(value.get("db_user"))
+    setting.db_name = _normalize_optional_string(value.get("db_name"))
+
+    password_value = value.get("db_pass")
+    if password_value is None:
+        setting.db_password = None
+    elif isinstance(password_value, str):
+        setting.db_password = password_value or None
+    else:
+        setting.db_password = str(password_value)
+
+
 def get_or_create_settings(user_id: int) -> Setting:
     """Return the general settings row for a user, creating it if necessary."""
 
@@ -184,6 +220,7 @@ def get_or_create_settings(user_id: int) -> Setting:
         value=deepcopy(DEFAULT_SETTINGS),
         updated_at=datetime.utcnow(),
     )
+    _apply_db_columns(setting, setting.value)
     db.session.add(setting)
     db.session.commit()
 
@@ -254,10 +291,12 @@ def _persist_setting(
             value=value,
             updated_at=datetime.utcnow(),
         )
+        _apply_db_columns(setting, value)
         db.session.add(setting)
     else:
         setting.value = value
         setting.updated_at = datetime.utcnow()
+        _apply_db_columns(setting, value)
     db.session.commit()
 
 
@@ -297,6 +336,26 @@ def reset_settings(tenant_id: str, user_id: int) -> dict[str, Any]:
     if setting:
         db.session.delete(setting)
         db.session.commit()
+    return get_settings(tenant_id, user_id)
+
+
+def update_test_metadata(
+    tenant_id: str,
+    user_id: int,
+    *,
+    status: str | None,
+    message: str | None,
+) -> dict[str, Any]:
+    setting = _get_setting(tenant_id, user_id)
+    if setting is None:
+        setting = get_or_create_settings(user_id)
+
+    merged = _merge_defaults(setting.value if setting else None)
+    merged["last_test_status"] = status
+    merged["last_test_message"] = message
+    merged["last_test_at"] = datetime.utcnow().isoformat() + "Z" if status else None
+
+    _persist_setting(tenant_id, user_id, merged, setting)
     return get_settings(tenant_id, user_id)
 
 
