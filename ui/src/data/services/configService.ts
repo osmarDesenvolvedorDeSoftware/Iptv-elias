@@ -121,7 +121,7 @@ export async function getConfig(): Promise<GeneralSettings> {
     return MockAdapter.fetch<GeneralSettings>('config.get.json').catch(() => mockSettings);
   }
 
-  const raw = await get<RawSettings>('/config');
+  const raw = await get<RawSettings>('/config/me');
   return normalizeSettings(raw);
 }
 
@@ -141,7 +141,7 @@ export async function saveConfig(payload: SaveConfigPayload): Promise<GeneralSet
   }
 
   const body = serializeConfigPayload(payload);
-  const response = await post<ConfigSaveResponse>('/config', body);
+  const response = await post<ConfigSaveResponse>('/config/me', body);
   return normalizeSettings(response.settings);
 }
 
@@ -150,7 +150,7 @@ export async function resetConfig(): Promise<GeneralSettings> {
     return mockSettings;
   }
 
-  const response = await post<ConfigResetResponse>('/config/reset', {});
+  const response = await post<ConfigResetResponse>('/config/me/reset', {});
   return normalizeSettings(response.settings);
 }
 
@@ -160,5 +160,5 @@ export async function testConfig(payload: Partial<SaveConfigPayload>): Promise<C
   }
 
   const body = serializeConfigPayload(payload);
-  return post<ConfigTestResponse>('/config/test', body);
+  return post<ConfigTestResponse>('/config/me/test', body);
 }

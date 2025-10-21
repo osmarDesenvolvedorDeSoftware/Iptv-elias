@@ -151,8 +151,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 
-def _get_setting(tenant_id: str) -> Setting | None:
-    return Setting.query.filter_by(tenant_id=tenant_id, key=_GENERAL_KEY).first()
+def _get_setting(tenant_id: str, user_id: int) -> Setting | None:
+    return Setting.query.filter_by(tenant_id=tenant_id, user_id=user_id, key=_GENERAL_KEY).first()
 
 
 def _merge_defaults(value: dict[str, Any] | None) -> dict[str, Any]:
@@ -184,8 +184,8 @@ def get_schema() -> dict[str, Any]:
     }
 
 
-def get_settings(tenant_id: str) -> dict[str, Any]:
-    setting = _get_setting(tenant_id)
+def get_settings(tenant_id: str, user_id: int) -> dict[str, Any]:
+    setting = _get_setting(tenant_id, user_id)
     merged = _merge_defaults(setting.value if setting else None)
 
     response = deepcopy(merged)
@@ -196,8 +196,8 @@ def get_settings(tenant_id: str) -> dict[str, Any]:
     return response
 
 
-def get_settings_with_secrets(tenant_id: str) -> dict[str, Any]:
-    setting = _get_setting(tenant_id)
+def get_settings_with_secrets(tenant_id: str, user_id: int) -> dict[str, Any]:
+    setting = _get_setting(tenant_id, user_id)
     merged = _merge_defaults(setting.value if setting else None)
 
     for field in _SENSITIVE_FIELDS:
@@ -206,11 +206,19 @@ def get_settings_with_secrets(tenant_id: str) -> dict[str, Any]:
     return merged
 
 
-def _persist_setting(tenant_id: str, value: dict[str, Any], setting: Setting | None = None) -> None:
+def _persist_setting(
+    tenant_id: str, user_id: int, value: dict[str, Any], setting: Setting | None = None
+) -> None:
     if setting is None:
-        setting = _get_setting(tenant_id)
+        setting = _get_setting(tenant_id, user_id)
     if setting is None:
-        setting = Setting(tenant_id=tenant_id, key=_GENERAL_KEY, value=value, updated_at=datetime.utcnow())
+        setting = Setting(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=_GENERAL_KEY,
+            value=value,
+            updated_at=datetime.utcnow(),
+        )
         db.session.add(setting)
     else:
         setting.value = value
@@ -218,13 +226,13 @@ def _persist_setting(tenant_id: str, value: dict[str, Any], setting: Setting | N
     db.session.commit()
 
 
-def save_settings(tenant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def save_settings(tenant_id: str, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         data = SettingsPayload(**payload)
     except ValidationError as exc:
         raise ValueError(exc.errors()) from exc
 
-    setting = _get_setting(tenant_id)
+    setting = _get_setting(tenant_id, user_id)
     current = _merge_defaults(setting.value if setting else None)
 
     result = current
@@ -245,20 +253,20 @@ def save_settings(tenant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     result["last_test_message"] = None
     result["last_test_at"] = None
 
-    _persist_setting(tenant_id, result, setting)
-    return get_settings(tenant_id)
+    _persist_setting(tenant_id, user_id, result, setting)
+    return get_settings(tenant_id, user_id)
 
 
-def reset_settings(tenant_id: str) -> dict[str, Any]:
-    setting = _get_setting(tenant_id)
+def reset_settings(tenant_id: str, user_id: int) -> dict[str, Any]:
+    setting = _get_setting(tenant_id, user_id)
     if setting:
         db.session.delete(setting)
         db.session.commit()
-    return get_settings(tenant_id)
+    return get_settings(tenant_id, user_id)
 
 
-def test_connection(tenant_id: str, payload: dict[str, Any]) -> Tuple[bool, str, dict[str, Any]]:
-    stored = get_settings_with_secrets(tenant_id)
+def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tuple[bool, str, dict[str, Any]]:
+    stored = get_settings_with_secrets(tenant_id, user_id)
 
     combined: Dict[str, Any] = deepcopy(stored)
     combined.update({k: v for k, v in payload.items() if v is not None})
@@ -281,7 +289,7 @@ def test_connection(tenant_id: str, payload: dict[str, Any]) -> Tuple[bool, str,
     )
 
     engine: Engine | None = None
-    setting = _get_setting(tenant_id)
+    setting = _get_setting(tenant_id, user_id)
     try:
         engine = create_engine(url, pool_pre_ping=True)
         with engine.connect() as conn:
@@ -292,7 +300,7 @@ def test_connection(tenant_id: str, payload: dict[str, Any]) -> Tuple[bool, str,
         stored_value["last_test_status"] = "error"
         stored_value["last_test_message"] = message
         stored_value["last_test_at"] = datetime.utcnow().isoformat() + "Z"
-        _persist_setting(tenant_id, stored_value, setting)
+        _persist_setting(tenant_id, user_id, stored_value, setting)
         return False, message, {"status": "error", "testedAt": stored_value["last_test_at"]}
     finally:
         if engine is not None:
@@ -302,7 +310,7 @@ def test_connection(tenant_id: str, payload: dict[str, Any]) -> Tuple[bool, str,
     stored_value["last_test_status"] = "success"
     stored_value["last_test_message"] = "Conexão estabelecida com sucesso"
     stored_value["last_test_at"] = datetime.utcnow().isoformat() + "Z"
-    _persist_setting(tenant_id, stored_value, setting)
+    _persist_setting(tenant_id, user_id, stored_value, setting)
 
     return True, "Conexão estabelecida com sucesso", {
         "testedAt": stored_value["last_test_at"],

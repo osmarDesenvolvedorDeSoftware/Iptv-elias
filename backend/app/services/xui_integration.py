@@ -3,8 +3,11 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Iterable, Mapping, Tuple
 
+from sqlalchemy.engine import URL
+
 from ..extensions import db
 from ..models import TenantIntegrationConfig
+from . import settings as settings_service
 
 _DEFAULT_OPTIONS: dict[str, Any] = {
     "tmdb": {
@@ -232,10 +235,35 @@ def require_integration_config(tenant_id: str) -> TenantIntegrationConfig:
     return config
 
 
-def get_worker_config(tenant_id: str) -> dict[str, Any]:
+def _build_mysql_uri(settings: Mapping[str, Any]) -> str | None:
+    host = _clean_string(settings.get("db_host"))
+    user = _clean_string(settings.get("db_user"))
+    database = _clean_string(settings.get("db_name"))
+    if not host or not user or not database:
+        return None
+
+    try:
+        port = int(settings.get("db_port") or 3306)
+    except (TypeError, ValueError):
+        port = 3306
+
+    password = settings.get("db_pass")
+    url = URL.create(
+        "mysql+pymysql",
+        username=user,
+        password=password or "",
+        host=host,
+        port=port,
+        database=database,
+    )
+    return str(url)
+
+
+def get_worker_config(tenant_id: str, user_id: int | None = None) -> dict[str, Any]:
     config = require_integration_config(tenant_id)
     options = _merge_options(config.options)
-    return {
+
+    payload = {
         "xui_db_uri": config.xui_db_uri,
         "xtream_base_url": config.xtream_base_url,
         "xtream_username": config.xtream_username,
@@ -247,3 +275,42 @@ def get_worker_config(tenant_id: str) -> dict[str, Any]:
         "ignore_categories": list(config.ignore_categories or []),
         "options": options,
     }
+
+    if user_id is not None:
+        user_settings = settings_service.get_settings_with_secrets(tenant_id, user_id)
+
+        mysql_uri = _build_mysql_uri(user_settings)
+        if mysql_uri:
+            payload["xui_db_uri"] = mysql_uri
+
+        api_base = _clean_string(user_settings.get("api_base_url"))
+        if api_base:
+            payload["xtream_base_url"] = api_base.rstrip("/")
+
+        xtream_user = _clean_string(user_settings.get("xtream_user"))
+        if xtream_user:
+            payload["xtream_username"] = xtream_user
+            payload["xui_api_user"] = xtream_user
+
+        xtream_pass = user_settings.get("xtream_pass")
+        if xtream_pass:
+            payload["xtream_password"] = xtream_pass
+            payload["xui_api_pass"] = xtream_pass
+
+        tmdb_key = _clean_string(user_settings.get("tmdb_key"))
+        if tmdb_key:
+            payload["tmdb_key"] = tmdb_key
+            tmdb_options = options.get("tmdb") if isinstance(options, dict) else {}
+            if not isinstance(tmdb_options, dict):
+                tmdb_options = {}
+            tmdb_options = dict(tmdb_options)
+            tmdb_options["apiKey"] = tmdb_key
+            options = dict(options)
+            options["tmdb"] = tmdb_options
+            payload["options"] = options
+
+        prefixes = user_settings.get("ignored_prefixes")
+        if isinstance(prefixes, list) and prefixes:
+            payload["ignore_prefixes"] = prefixes
+
+    return payload

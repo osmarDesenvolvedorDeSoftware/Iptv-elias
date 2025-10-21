@@ -22,7 +22,7 @@ def _build_repository(tenant_id: str) -> XuiRepository:
     uri = worker_config.get("xui_db_uri")
     if not uri:
         raise RuntimeError("xui_db_uri não configurado")
-    engine = get_engine(tenant_id, XuiCredentials(uri))
+    engine = get_engine(tenant_id, None, XuiCredentials(uri))
     repository = XuiRepository(engine)
     repository.ensure_compatibility()
     return repository
