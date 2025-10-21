@@ -1,12 +1,18 @@
 import type { ApiError } from '../adapters/ApiAdapter';
 import { get, isMockEnabled, post } from '../adapters/ApiAdapter';
 import { MockAdapter } from '../adapters/MockAdapter';
-import { AuthLoginResponse, AuthRefreshResponse } from '../types';
+import { AuthLoginResponse, AuthRefreshResponse, User } from '../types';
 
 const MOCK_EMAIL = 'operador@tenant.com';
 const MOCK_PASSWORD = 'admin123';
 
 export interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+export interface RegisterPayload {
+  name: string;
   email: string;
   password: string;
 }
@@ -31,6 +37,15 @@ export async function login(payload: LoginPayload): Promise<AuthLoginResponse> {
   return post<AuthLoginResponse>('/auth/login', payload, { skipAuth: true });
 }
 
+export async function register(payload: RegisterPayload): Promise<AuthLoginResponse> {
+  if (isMockEnabled) {
+    const response = await MockAdapter.fetch<AuthLoginResponse>('auth.login.json');
+    return response;
+  }
+
+  return post<AuthLoginResponse>('/auth/register', payload, { skipAuth: true });
+}
+
 export async function refresh(refreshToken: string): Promise<AuthRefreshResponse> {
   if (isMockEnabled) {
     const response = await MockAdapter.fetch<AuthLoginResponse>('auth.login.json');
@@ -50,12 +65,13 @@ export async function refresh(refreshToken: string): Promise<AuthRefreshResponse
   );
 }
 
-export async function me(): Promise<AuthLoginResponse> {
+export async function me(): Promise<{ user: User }> {
   if (isMockEnabled) {
-    return MockAdapter.fetch<AuthLoginResponse>('auth.login.json');
+    const response = await MockAdapter.fetch<AuthLoginResponse>('auth.login.json');
+    return { user: response.user };
   }
 
-  return get<AuthLoginResponse>('/auth/me');
+  return get<{ user: User }>('/auth/me');
 }
 
 export const authMockCredentials = { email: MOCK_EMAIL, password: MOCK_PASSWORD };

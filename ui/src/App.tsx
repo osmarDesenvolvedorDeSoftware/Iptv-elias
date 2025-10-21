@@ -8,6 +8,7 @@ import { ToastProvider } from './providers/ToastProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { appRoutes, authRoutes } from './routes';
 import { ToastContainer } from './components/ToastContainer';
+import { RoleGuard } from './components/RoleGuard';
 
 export function App() {
   return (
@@ -36,9 +37,20 @@ export function App() {
                 </Route>
 
                 <Route element={<AppLayout />}>
-                  {appRoutes.map((route) => (
-                    <Route key={route.path} path={route.path} element={<route.element />} />
-                  ))}
+                  {appRoutes.map((route) => {
+                    const Element = route.element;
+                    return (
+                      <Route
+                        key={route.path}
+                        path={route.path}
+                        element={
+                          <RoleGuard roles={route.roles}>
+                            <Element />
+                          </RoleGuard>
+                        }
+                      />
+                    );
+                  })}
                 </Route>
               </Routes>
             </Suspense>

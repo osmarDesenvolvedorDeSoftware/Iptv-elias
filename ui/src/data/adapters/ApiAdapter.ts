@@ -125,6 +125,18 @@ export function post<T>(path: string, body?: unknown, options: RequestOptions = 
   return request<T>(path, { ...options, method: 'POST', body });
 }
 
+export function put<T>(path: string, body?: unknown, options: RequestOptions = {}) {
+  return request<T>(path, { ...options, method: 'PUT', body });
+}
+
+export function patch<T>(path: string, body?: unknown, options: RequestOptions = {}) {
+  return request<T>(path, { ...options, method: 'PATCH', body });
+}
+
+export function deleteRequest<T = void>(path: string, options: RequestOptions = {}) {
+  return request<T>(path, { ...options, method: 'DELETE' });
+}
+
 function buildUrl(path: string): string {
   if (/^https?:/i.test(path)) {
     return path;

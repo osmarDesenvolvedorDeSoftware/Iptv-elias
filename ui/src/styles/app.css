@@ -1197,3 +1197,74 @@ body[data-theme='dark'] .app-shell__profile {
     max-height: none;
   }
 }
+
+.dashboard.dashboard--user,
+.dashboard.dashboard--admin {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--iptv-surface-border);
+  background-color: var(--iptv-surface);
+}
+
+.stat-card--danger {
+  border-color: var(--iptv-danger);
+}
+
+.stat-card__label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--iptv-text-muted);
+}
+
+.stat-card__value {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.stat-card__description {
+  font-size: 0.875rem;
+  color: var(--iptv-text-muted);
+}
+
+.sync-card {
+  border: 1px solid var(--iptv-surface-border);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+}
+
+.sync-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sync-card__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.sync-card__status {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--iptv-text-muted);
+}
+
+.sync-card__summary {
+  margin: 0;
+  color: var(--iptv-text-muted);
+  font-size: 0.9rem;
+}
