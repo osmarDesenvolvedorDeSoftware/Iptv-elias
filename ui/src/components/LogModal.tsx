@@ -2,7 +2,7 @@ import { PropsWithChildren, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
-import { getLogDetail } from '../data/services/logService';
+import { getLogDetail } from '../data/services/importService';
 
 interface LogModalProps {
   logId: number;

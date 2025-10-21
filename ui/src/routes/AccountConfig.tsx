@@ -2,7 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { ApiError } from '../data/adapters/ApiAdapter';
 import { fetchConfig, parseM3U, saveAccountConfig } from '../data/services/accountService';
-import { getImports, runImport } from '../data/services/importerService';
+import { getImports, runImport } from '../data/services/importService';
 import type {
   AccountConfigPayload,
   ImportJobHistoryItem,
