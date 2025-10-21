@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+from urllib.parse import urlparse
 import mysql.connector
 from flask import Blueprint, g, jsonify, request
 from mysql.connector import Error as MySQLError
@@ -21,6 +22,17 @@ def get_config():
     return jsonify(config.to_dict()), HTTPStatus.OK
 
 
+def _split_host(host: str) -> tuple[str, int]:
+    """Split a host string with optional port into its components."""
+
+    parsed = urlparse(f"//{host}")
+    domain = (parsed.hostname or host).strip()
+    port = parsed.port or 80
+    if not domain:
+        raise ValueError("M3U link inválido ou incompleto")
+    return domain, port
+
+
 @bp.put("/config")
 @auth_required
 def put_config():
@@ -31,14 +43,16 @@ def put_config():
 
     link_payload = payload.get("link_m3u") or payload.get("linkM3u") or payload.get("link")
     if isinstance(link_payload, str) and link_payload.strip():
-        parsed_from_link = parse_m3u_link(link_payload.strip())
-        if not parsed_from_link:
+        try:
+            parsed_from_link = parse_m3u_link(link_payload.strip())
+            domain, port = _split_host(parsed_from_link["host"])
+        except (KeyError, ValueError):
             return json_error("Formato de link M3U inválido", HTTPStatus.BAD_REQUEST)
 
         payload.update(
             {
-                "domain": parsed_from_link["domain"],
-                "port": parsed_from_link["port"],
+                "domain": domain,
+                "port": port,
                 "username": parsed_from_link["username"],
                 "password": parsed_from_link["password"],
             }
@@ -141,11 +155,21 @@ def parse_m3u():
     if not isinstance(link, str) or not link.strip():
         return json_error("link_m3u obrigatório", HTTPStatus.BAD_REQUEST)
 
-    parsed = parse_m3u_link(link.strip())
-    if not parsed:
+    try:
+        parsed = parse_m3u_link(link.strip())
+        domain, port = _split_host(parsed["host"])
+    except (KeyError, ValueError):
         return json_error("Formato M3U inválido", HTTPStatus.BAD_REQUEST)
 
-    return jsonify(parsed), HTTPStatus.OK
+    response = {
+        "host": parsed["host"],
+        "domain": domain,
+        "port": port,
+        "username": parsed["username"],
+        "password": parsed["password"],
+    }
+
+    return jsonify(response), HTTPStatus.OK
 
 
 @bp.post("/config/test")
