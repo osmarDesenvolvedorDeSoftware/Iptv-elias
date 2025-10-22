@@ -6,28 +6,36 @@ O IPTV Elias é um painel administrativo completo para catálogos IPTV. Ele comb
 
 ## 1. Preparar o ambiente
 
-1. **Pré-requisitos:** Docker, Docker Compose, Node.js 20+, npm 10+.
+1. **Pré-requisitos:** Python 3.11, Redis Server, Node.js 20+, npm 10+, PM2 (`npm install -g pm2`).
 2. **Configurar variáveis do backend:**
    ```bash
-   cd backend
-   cp .env.example .env
+   cd Iptv-elias
+   cp backend/.env.example .env
    ```
-   O arquivo `.env` define apenas parâmetros globais (JWT, Redis, banco da API, etc.). As integrações com o XUI não ficam mais no `.env`.
-3. **Subir os serviços:**
+   Preencha a URI do banco remoto (`SQLALCHEMY_DATABASE_URI`) com usuário/senha válidos e mantenha o Redis local (`redis://localhost:6379/0`).
+3. **Criar o virtualenv e instalar dependências do backend:**
    ```bash
-   docker compose up -d --build
+   python3.11 -m venv venv
+   source venv/bin/activate
+   pip install --upgrade pip
+   pip install -r backend/requirements.txt
    ```
-   Isso cria os containers `api`, `worker`, `db` (MySQL multitenant) e `redis`.
-4. **Instalar dependências do painel:**
+4. **Subir API Flask e worker Celery com PM2:**
    ```bash
-   cd ..
+   sudo mkdir -p /var/log/iptv-elias && sudo chown $(whoami) /var/log/iptv-elias
+   pm2 start ecosystem.config.js
+   pm2 save && pm2 startup
+   ```
+   A API responderá em `http://localhost:5000` e o worker consumirá a fila `default` via Redis local.
+5. **Instalar dependências do painel:**
+   ```bash
    npm install
    ```
-5. **Executar o painel:**
+6. **Executar o painel:**
    ```bash
    npm run dev
    ```
-   A interface React estará em `http://localhost:5173`, enquanto a API fica em `http://localhost:8000`.
+   A interface React estará em `http://localhost:5173`, enquanto a API fica em `http://localhost:5000`.
 
 ---
 
@@ -64,7 +72,7 @@ Informe o Tenant ID no login. O cabeçalho `X-Tenant-ID` será propagado automat
 O mesmo fluxo pode ser automatizado via `POST /tenants` (o proxy pode expor como `/api/tenants`). Exemplo:
 
 ```bash
-curl -X POST http://localhost:8000/tenants \
+curl -X POST http://localhost:5000/tenants \
   -H "Authorization: Bearer <TOKEN>" \
   -H "X-Tenant-ID: tenant-demo" \
   -H "Content-Type: application/json" \
@@ -112,9 +120,9 @@ Acesse **Configurações > Integração XUI** dentro do tenant desejado:
    - Importação Xtream → XUI (`run_import`) com TMDb opcional, bouquets e filtros por tenant.
 3. Acompanhe o progresso e os logs na própria tela de importação. Cada item é armazenado em `job_logs` e pode ser consultado depois.
 4. Para depurar em tempo real, observe o worker:
-   ```bash
-   docker compose logs -f worker
-   ```
+  ```bash
+  pm2 logs backend-worker
+  ```
 
 Cada execução respeita o `tenant_id` propagado: o worker usa `get_worker_config(tenant_id, user_id)` para carregar as credenciais corretas.
 
@@ -144,7 +152,7 @@ Após a importação:
 
 ## 8. Dicas de operação
 
-- Use `docker compose down -v` para limpar dados de desenvolvimento.
+- Use `pm2 restart backend-api`/`pm2 restart backend-worker` sempre que alterar configurações sensíveis.
 - Ajuste `throttleMs`, `limitItems` e `maxParallel` quando testar importações em ambientes com limites estritos.
 - Campos “ignorar prefixos/categorias” aceitam listas. Esses valores são consolidados nas colunas dedicadas e também replicados no JSON de opções para retrocompatibilidade.
 - Ao alterar credenciais XUI, o painel informa quando é necessário reiniciar o worker.
