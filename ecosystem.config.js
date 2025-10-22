@@ -1,49 +1,74 @@
 /*
- * PM2 ecosystem configuration for the IPTV Elias backend stack.
- * Each process runs from the Python virtualenv (./venv) without Docker.
- * Environment variables are loaded from the project .env file and logs are
- * persisted/rotated under /var/log/iptv-elias/.
+ * PM2 ecosystem configuration for running the IPTV Elias stack without Docker.
  */
 
-const path = require('path');
+const path = require("path");
 
-const baseDir = __dirname;
-const backendDir = path.join(baseDir, 'backend');
-const venvPath = path.join(baseDir, 'venv', 'bin');
-const envFile = path.join(baseDir, '.env');
-const logsDir = '/var/log/iptv-elias';
+const projectRoot = path.resolve(__dirname);
+const backendDir = path.join(projectRoot, "backend");
+const frontendDir = path.join(projectRoot, "frontend");
+const pythonBin = path.join(backendDir, "venv", "bin", "python3");
+const envFile = path.join(backendDir, ".env");
+
+const backendLogsDir = "/var/log/iptv-backend";
+const frontendLogsDir = "/var/log/iptv-frontend";
 
 module.exports = {
   apps: [
     {
-      name: 'backend-api',
+      name: "iptv-backend",
       cwd: backendDir,
-      script: path.join(venvPath, 'python'),
-      args: ['-m', 'app'],
+      script: pythonBin,
+      args: ["-m", "app"],
+      interpreter: "none",
       env_file: envFile,
-      out_file: path.join(logsDir, 'backend-api.log'),
-      error_file: path.join(logsDir, 'backend-api.error.log'),
-      merge_logs: true,
-      log_date_format: 'YYYY-MM-DD HH:mm:ss',
-      max_size: '200M',
-      retain: 10,
       autorestart: true,
       watch: false,
+      max_memory_restart: "512M",
+      env: {
+        PYTHONUNBUFFERED: "1",
+      },
+      out_file: path.join(backendLogsDir, "out.log"),
+      error_file: path.join(backendLogsDir, "error.log"),
+      merge_logs: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
     },
     {
-      name: 'backend-worker',
+      name: "iptv-worker",
       cwd: backendDir,
-      script: path.join(venvPath, 'celery'),
-      args: ['-A', 'app.extensions.celery_app', 'worker', '-l', 'info', '-Q', 'default'],
+      script: pythonBin,
+      args: ["-m", "app.worker"],
+      interpreter: "none",
       env_file: envFile,
-      out_file: path.join(logsDir, 'backend-worker.log'),
-      error_file: path.join(logsDir, 'backend-worker.error.log'),
-      merge_logs: true,
-      log_date_format: 'YYYY-MM-DD HH:mm:ss',
-      max_size: '200M',
-      retain: 10,
       autorestart: true,
       watch: false,
+      max_memory_restart: "512M",
+      env: {
+        PYTHONUNBUFFERED: "1",
+      },
+      out_file: path.join(backendLogsDir, "worker.out.log"),
+      error_file: path.join(backendLogsDir, "worker.err.log"),
+      merge_logs: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+    },
+    {
+      name: "iptv-frontend",
+      cwd: frontendDir,
+      script: "npm",
+      args: ["run", "preview", "--", "--host", "0.0.0.0", "--port", "5173"],
+      interpreter: "none",
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "256M",
+      env: {
+        NODE_ENV: "production",
+        PORT: "5173",
+        HOST: "0.0.0.0",
+      },
+      out_file: path.join(frontendLogsDir, "out.log"),
+      error_file: path.join(frontendLogsDir, "error.log"),
+      merge_logs: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
     },
   ],
 };
