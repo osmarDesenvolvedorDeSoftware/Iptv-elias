@@ -34,7 +34,7 @@ const mockSettings: GeneralSettings = {
   dbPort: 3306,
   dbUser: 'root',
   dbName: 'xui',
-  apiBaseUrl: 'http://localhost:8000',
+  apiBaseUrl: 'http://localhost:5000',
   m3uLink: 'http://example.com/list.m3u',
   tmdbKeyMasked: false,
   xtreamUser: 'demo',

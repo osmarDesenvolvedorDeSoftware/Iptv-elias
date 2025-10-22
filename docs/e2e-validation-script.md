@@ -1,7 +1,7 @@
 # Roteiro de Validação Ponta a Ponta IPTV
 
 ## Objetivo
-Garantir que o fluxo completo do sistema IPTV — englobando importação, processamento assíncrono, armazenamento persistente, interface web e métricas — funcione de forma integrada no ambiente Docker Compose com API Flask, Celery, Redis, MySQL e frontend Vite React.
+Garantir que o fluxo completo do sistema IPTV — englobando importação, processamento assíncrono, armazenamento persistente, interface web e métricas — funcione de forma integrada executando diretamente no host (Flask + Celery + Redis + MariaDB remota) gerenciados pelo PM2 e com frontend Vite React.
 
 ---
 
@@ -13,20 +13,27 @@ Garantir que o fluxo completo do sistema IPTV — englobando importação, proce
    ```
 2. **Configurar variáveis de ambiente**
    ```bash
-   cp backend/.env.example backend/.env
+   cp backend/.env.example .env
    ```
-3. **Subir os serviços**
+   Ajuste `SQLALCHEMY_DATABASE_URI` para o host remoto e mantenha `REDIS_URL=redis://localhost:6379/0`.
+3. **Instalar dependências e iniciar processos**
    ```bash
-   docker-compose up -d --build
+   python3.11 -m venv venv
+   source venv/bin/activate
+   pip install --upgrade pip
+   pip install -r backend/requirements.txt
+   sudo mkdir -p /var/log/iptv-elias && sudo chown $(whoami) /var/log/iptv-elias
+   pm2 start ecosystem.config.js
+   pm2 save && pm2 startup
    ```
 4. **Monitorar inicialização**
-   - Aguardar containers `backend-db`, `backend-redis`, `backend-api`, `backend-worker` e `frontend` estarem `healthy` ou `running`.
-   - Validar com `docker compose ps` ou `docker logs -f <container>` quando necessário.
+   - Execute `pm2 status` e aguarde `backend-api` e `backend-worker` como `online`.
+   - Use `pm2 logs backend-api`/`pm2 logs backend-worker` para validar carregamento.
 5. **Health check inicial da API**
    ```bash
-   curl http://localhost:8000/health
+   curl http://localhost:5000/health
    ```
-   - **Resultado esperado:** `{"status":"ok"}` e campos `database`, `redis`, `celery` ausentes ou implícitos como saudáveis.
+   - **Resultado esperado:** `{"status":"ok"}` com chaves `database`, `redis` e `celery` sinalizando sucesso.
 
 ---
 
@@ -88,7 +95,7 @@ Garantir que o fluxo completo do sistema IPTV — englobando importação, proce
    - Obter token JWT atual do storage do navegador.
    - Executar:
      ```bash
-     curl http://localhost:8000/metrics/dashboard \
+    curl http://localhost:5000/metrics/dashboard \
        -H "Authorization: Bearer <token>" \
        -H "X-Tenant-ID: tenant-demo"
      ```
@@ -99,7 +106,7 @@ Garantir que o fluxo completo do sistema IPTV — englobando importação, proce
 ## 7. Health Check Completo
 1. Realizar nova chamada para o endpoint de health detalhado:
    ```bash
-   curl http://localhost:8000/health
+  curl http://localhost:5000/health
    ```
 2. **Resultado esperado:**
    ```json
@@ -114,9 +121,9 @@ Garantir que o fluxo completo do sistema IPTV — englobando importação, proce
 ---
 
 ## 8. Logs e Banco de Dados
-1. Abrir shell no container MySQL:
+1. Conectar diretamente ao banco remoto (utilize as mesmas credenciais do `.env`):
    ```bash
-   docker exec -it backend-db mysql -uiptv -piptv iptv
+   mysql -h <host-remoto> -u<usuario> -p<senha> <database>
    ```
 2. **Consultas de verificação:**
    ```sql
@@ -142,15 +149,12 @@ Garantir que o fluxo completo do sistema IPTV — englobando importação, proce
 ---
 
 ## 10. Finalização e Persistência
-1. Encerrar ambiente:
+1. Reiniciar os processos gerenciados pelo PM2:
    ```bash
-   docker-compose down
+   pm2 restart backend-api
+   pm2 restart backend-worker
    ```
-2. Subir novamente para validar persistência:
-   ```bash
-   docker-compose up -d
-   ```
-3. Repetir verificações rápidas:
+2. Repetir verificações rápidas:
    - Acessar `/bouquets` e `/config` para garantir que configurações e bouquets permanecem.
    - Conferir `/metrics/dashboard` para validar métricas persistidas.
    - Checar `/logs` para confirmar histórico intacto.
