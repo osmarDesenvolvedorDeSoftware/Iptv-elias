@@ -16,7 +16,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("tenant_id", sa.String(length=64), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.UniqueConstraint("tenant_id", "name", name="uq_bouquets_tenant_name"),
     )
 
@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column("type", sa.String(length=32), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("metadata", sa.JSON(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.UniqueConstraint("bouquet_id", "content_id", name="uq_bouquet_items_unique"),
     )
     op.create_index(
@@ -42,7 +42,13 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("tenant_id", sa.String(length=64), sa.ForeignKey("tenants.id"), nullable=False, unique=True),
         sa.Column("data", sa.JSON(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            server_onupdate=sa.text("CURRENT_TIMESTAMP"),
+        ),
     )
 
 

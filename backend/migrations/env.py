@@ -1,14 +1,20 @@
 import logging
+import os
 from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
-from app import create_app
 from app.extensions import db
+from app import models  # noqa: F401
 
 config = context.config
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR.parent / ".env")
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -17,13 +23,15 @@ logger = logging.getLogger("alembic.env")
 target_metadata = db.metadata
 
 
-def get_url():
-    app = create_app()
-    return app.config["SQLALCHEMY_DATABASE_URI"]
+def get_url() -> str:
+    database_url = os.getenv("SQLALCHEMY_DATABASE_URI") or os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL not set")
+    return database_url
 
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url") or get_url()
+    url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
