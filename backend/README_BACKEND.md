@@ -63,31 +63,47 @@ A mensagem `Access denied` ou erros de SSL indicam que o banco não está aceita
 
 ## Execução com PM2
 
-1. Certifique-se de que o diretório de logs exista:
+Antes de iniciar o orquestrador, crie os diretórios de log persistentes para backend e frontend:
+
+```bash
+sudo mkdir -p /var/log/iptv-backend /var/log/iptv-frontend
+sudo chown $(whoami):$(whoami) /var/log/iptv-backend /var/log/iptv-frontend
+```
+
+### Passo a passo de implantação (VPS Ubuntu 20.04)
+
+1. **Ative o ambiente virtual**
    ```bash
-   sudo mkdir -p /var/log/iptv-elias
-   sudo chown $(whoami):$(whoami) /var/log/iptv-elias
+   cd /root/Iptv-elias/backend
+   source venv/bin/activate
    ```
-2. Inicie os processos definidos em `ecosystem.config.js`:
+2. **Inicie todos os serviços com o PM2**
    ```bash
+   cd /root/Iptv-elias
    pm2 start ecosystem.config.js
    pm2 status
-   ```
-3. Persista a configuração e habilite o autostart:
-   ```bash
    pm2 save
-   pm2 startup systemd
+   pm2 startup
+   # Após confirmar que o serviço do systemd foi configurado, teste a restauração:
+   pm2 resurrect
    ```
-4. Comandos úteis:
+3. **Verifique os logs individuais**
    ```bash
-   pm2 restart backend-api
-   pm2 restart backend-worker
-   pm2 logs backend-api
-   pm2 logs backend-worker
+   pm2 logs iptv-backend
+   pm2 logs iptv-worker
+   pm2 logs iptv-frontend
    ```
+4. **Valide a saúde da API Flask**
+   ```bash
+   curl http://localhost:5000/health
+   ```
+   Esperado: `{"services":{"celery":"ok","database":"ok","redis":"ok"},"status":"healthy"}`.
+5. **Confirme o frontend React**
+   - Abra no navegador: `http://<IP_DA_VPS>:5173`
+   - A pré-visualização do Vite ficará disponível no host público.
 
-- A API Flask fica disponível em `http://localhost:5000` (exposta ao Nginx reverso).
-- Logs JSON da API e do worker são gravados em `/var/log/iptv-elias/*.log` com rotação (`max_size`/`retain`).
+- A API Flask continua acessível em `http://localhost:5000` (mapeada pelo Nginx).
+- Logs do backend (API + worker) são gravados em `/var/log/iptv-backend/` e os do frontend em `/var/log/iptv-frontend/`.
 
 ## Health check e debug rápido
 
@@ -95,6 +111,20 @@ A mensagem `Access denied` ou erros de SSL indicam que o banco não está aceita
   ```bash
   curl http://localhost:5000/health
   ```
+- Executar a API Flask diretamente (útil para debugar fora do PM2):
+  ```bash
+  cd /root/Iptv-elias/backend
+  source venv/bin/activate
+  python -m app
+  ```
+- Subir apenas o worker Celery manualmente:
+  ```bash
+  cd /root/Iptv-elias/backend
+  source venv/bin/activate
+  python -m app.worker
+  ```
+  Para customizar filas, níveis de log ou concorrência, exporte as variáveis
+  `CELERY_QUEUES`, `CELERY_LOG_LEVEL` e `CELERY_CONCURRENCY` antes de executar o comando.
 - Script auxiliar `tabela.py` (ex.: inspecionar tabelas XUI):
   ```bash
   source venv/bin/activate
@@ -123,3 +153,11 @@ backend/
 - A autenticação utiliza JWT (Flask-JWT-Extended) com tokens de acesso e refresh.
 - Redis local (`localhost:6379`) é compartilhado entre a API e o worker Celery.
 - Ajuste `LOG_LEVEL` no `.env` para controlar a verbosidade dos logs (stdout + arquivos gerenciados pelo PM2).
+
+## Checklist de validação rápida
+
+- Redis conectado ✅
+- Banco MySQL acessível ✅
+- Celery sincronizado ✅
+- PM2 persistente (`pm2 resurrect`) ✅
+- Frontend servindo corretamente ✅
