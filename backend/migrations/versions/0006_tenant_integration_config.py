@@ -23,8 +23,14 @@ def upgrade() -> None:
         sa.Column("ignore_prefixes", sa.JSON(), nullable=False),
         sa.Column("ignore_categories", sa.JSON(), nullable=False),
         sa.Column("options", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            server_onupdate=sa.text("CURRENT_TIMESTAMP"),
+        ),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"]),
         sa.UniqueConstraint("tenant_id"),
     )

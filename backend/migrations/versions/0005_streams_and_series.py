@@ -27,8 +27,14 @@ def upgrade() -> None:
         sa.Column("source_tag_filmes", sa.String(length=255), nullable=True),
         sa.Column("tmdb_id", sa.Integer(), nullable=True),
         sa.Column("movie_properties", sa.JSON(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            server_onupdate=sa.text("CURRENT_TIMESTAMP"),
+        ),
         sa.UniqueConstraint("tenant_id", "primary_url", name="uq_streams_tenant_url"),
     )
     op.create_index("ix_streams_tenant_type", "streams", ["tenant_id", "type"])
@@ -50,8 +56,14 @@ def upgrade() -> None:
         sa.Column("genres", sa.JSON(), nullable=True),
         sa.Column("seasons", sa.Integer(), nullable=True),
         sa.Column("is_adult", sa.Boolean(), nullable=False, server_default=sa.text("0")),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            server_onupdate=sa.text("CURRENT_TIMESTAMP"),
+        ),
         sa.UniqueConstraint("tenant_id", "title_base", "source_tag", name="uq_series_identity"),
     )
     op.create_index("ix_streams_series_source_tag", "streams_series", ["source_tag"])
@@ -65,7 +77,7 @@ def upgrade() -> None:
         sa.Column("season", sa.Integer(), nullable=False),
         sa.Column("episode", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
     )
     op.create_index("ix_streams_episodes_series", "streams_episodes", ["series_id"])
 

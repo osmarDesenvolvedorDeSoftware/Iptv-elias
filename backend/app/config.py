@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 load_dotenv(BASE_DIR.parent / ".env")
 
 
@@ -15,9 +16,10 @@ class Config:
         self.JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret")
         self.JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES_MIN", "15")))
         self.JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=int(os.getenv("JWT_REFRESH_TOKEN_EXPIRES_DAYS", "7")))
-        self.SQLALCHEMY_DATABASE_URI = os.getenv(
-            "SQLALCHEMY_DATABASE_URI", "sqlite:///" + str(BASE_DIR / "app.db")
-        )
+        database_url = os.getenv("SQLALCHEMY_DATABASE_URI") or os.getenv("DATABASE_URL")
+        if not database_url:
+            raise RuntimeError("DATABASE_URL not set")
+        self.SQLALCHEMY_DATABASE_URI = database_url
         self.SQLALCHEMY_TRACK_MODIFICATIONS = False
         self.CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")

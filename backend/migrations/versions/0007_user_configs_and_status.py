@@ -28,8 +28,14 @@ def upgrade() -> None:
         sa.Column("senha_api", sa.String(length=512), nullable=True),
         sa.Column("ativo", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("last_sync", sa.DateTime(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            server_onupdate=sa.text("CURRENT_TIMESTAMP"),
+        ),
     )
 
     op.execute("UPDATE users SET is_active = 1")
