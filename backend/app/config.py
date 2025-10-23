@@ -21,7 +21,12 @@ class Config:
             raise RuntimeError("DATABASE_URL not set")
         self.SQLALCHEMY_DATABASE_URI = database_url
         self.SQLALCHEMY_TRACK_MODIFICATIONS = False
-        self.CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+        raw_cors_origins = os.getenv("CORS_ORIGINS")
+        if raw_cors_origins:
+            origins = [origin.strip() for origin in raw_cors_origins.split(",") if origin.strip()]
+            self.CORS_ORIGINS = origins or ["*"]
+        else:
+            self.CORS_ORIGINS = ["*"]
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.REDIS_URL = redis_url
         self.CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", redis_url)
