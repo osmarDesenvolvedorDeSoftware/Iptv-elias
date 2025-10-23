@@ -6,9 +6,11 @@ from urllib.parse import urlparse
 from typing import Any, Mapping
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL
-from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
+from ..services.mysql_errors import (
+    MysqlAccessDeniedError,
+    MysqlSslMisconfigurationError,
+)
+from .user_settings import _test_db_connection
 
 from ..models import User
 from ..services.m3u_parser import parse_m3u_link
@@ -159,60 +161,44 @@ def put_config():
         return json_error("Informe domínio, usuário e senha para validar a conexão.", HTTPStatus.BAD_REQUEST)
 
     if db_credentials is not None:
-        url = URL.create(
-            "mysql+pymysql",
-            username=db_credentials["username"],
-            password=db_credentials["password"],
-            host=db_credentials["host"],
-            port=db_credentials["port"],
-            database=db_credentials["database"],
-        )
-
-        engine = None
         try:
-            engine = create_engine(url, pool_pre_ping=True)
-            with engine.connect() as connection:  # pragma: no cover - depends on external resource
-                connection.execute(text("SELECT 1"))
-            connection_ready = True
-            logger.info(
-                "[account.config] XUI DB connection ok for user %s. Banco local permanece exclusivo do painel; XUI remoto validado sob demanda.",
-                user.id,
+            _test_db_connection(
+                db_credentials["host"],
+                db_credentials["port"],
+                db_credentials["username"],
+                db_credentials["password"],
+                db_credentials["database"],
             )
-        except (OperationalError, ProgrammingError) as exc:  # pragma: no cover - depends on external resource
+        except MysqlSslMisconfigurationError as exc:  # pragma: no cover - depends on external resource
+            logger.warning(
+                "[account.config] SSL misconfiguration detected while testing XUI DB for user %s: host=%s",
+                user.id,
+                db_credentials.get("host"),
+            )
+            return json_error(str(exc), HTTPStatus.BAD_REQUEST)
+        except MysqlAccessDeniedError as exc:  # pragma: no cover - depends on external resource
+            logger.warning(
+                "[account.config] Access denied while testing XUI DB for user %s: host=%s user=%s",
+                user.id,
+                db_credentials.get("host"),
+                exc.user or db_credentials.get("username"),
+            )
+            return json_error(str(exc), HTTPStatus.BAD_REQUEST)
+        except RuntimeError as exc:  # pragma: no cover - depends on external resource
             logger.warning(
                 "[account.config] Failed to connect to XUI DB for user %s: %s",
                 user.id,
                 exc,
             )
-            return json_error(
-                f"Não foi possível conectar ao banco XUI: {exc}",
-                HTTPStatus.BAD_REQUEST,
-            )
-        except SQLAlchemyError as exc:  # pragma: no cover - depends on external resource
-            logger.warning(
-                "[account.config] Unexpected SQL error while testing XUI DB for user %s: %s",
-                user.id,
-                exc,
-            )
-            return json_error(
-                f"Não foi possível conectar ao banco XUI: {exc}",
-                HTTPStatus.BAD_REQUEST,
-            )
-        finally:
-            if engine is not None:
-                engine.dispose()
-
-        if not connection_ready:
-            logger.warning(
-                "[account.config] Connection to XUI DB not ready for user %s",
-                user.id,
-            )
-            return json_error(
-                "Não foi possível validar a conexão com o banco XUI.",
-                HTTPStatus.BAD_REQUEST,
-            )
+            return json_error(str(exc), HTTPStatus.BAD_REQUEST)
 
         payload["xuiDbUri"] = db_credentials["uri"]
+        connection_ready = True
+
+        logger.info(
+            "[account.config] XUI DB connection ok for user %s — banco remoto testado com sucesso",
+            user.id,
+        )
 
         logger.debug(
             "[account.config] XUI DB URI validated for user %s: host=%s port=%s user=%s",

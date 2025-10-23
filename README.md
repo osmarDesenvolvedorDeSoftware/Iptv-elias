@@ -149,8 +149,9 @@ module.exports = {
 ## 💾 Bancos de dados do painel
 
 - O `SQLALCHEMY_DATABASE_URI` configura **apenas o banco local do painel**, usado para armazenar usuários, preferências e históricos internos.
-- As credenciais do XUI informadas na tela de configurações são validadas sob demanda com uma conexão temporária. Quando o teste passa, o URI remoto é salvo no cadastro do usuário para que os jobs de sincronização consultem diretamente o banco XUI.
-- Assim, o banco local continua isolado para o painel, enquanto o banco remoto do XUI só é acessado durante testes ou sincronizações.
+- Os endpoints `/account/config` e `/api/settings/test-db` criam engines temporárias com o host, porta, usuário e senha informados no payload para validar o XUI remoto — nenhuma variável de ambiente é utilizada nesses testes.
+- Quando a validação passa, o URI remoto é salvo em `xuiDbUri` no cadastro do usuário. Os jobs de sincronização passam a consumir esse banco XUI diretamente, enquanto o painel segue utilizando o banco local `iptv_elias` para suas rotinas internas.
+- Dessa forma, o banco local permanece isolado para o painel e o banco remoto do XUI só é acessado durante testes ou sincronizações sob demanda.
 
 
 ## Estrutura atual
