@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from typing import Any, Mapping
 
 from flask import Blueprint, g, jsonify, request
+from sqlalchemy.engine import make_url
 from ..services.mysql_errors import (
     MysqlAccessDeniedError,
     MysqlSslMisconfigurationError,
@@ -48,6 +49,50 @@ def _sanitize_for_logging(payload: Mapping[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
+def _mask_password_partial(password: Any) -> str:
+    if password is None:
+        return ""
+
+    password_str = str(password)
+    if not password_str:
+        return ""
+
+    visible = password_str[:3]
+    return f"{visible}***"
+
+
+def _render_uri_with_partial_password(uri: Any) -> str:
+    if uri is None:
+        return "<nenhuma>"
+
+    if not isinstance(uri, str):
+        uri = str(uri)
+
+    candidate = uri.strip()
+    if not candidate:
+        return "<nenhuma>"
+
+    normalized = candidate if "://" in candidate else f"mysql+pymysql://{candidate}"
+
+    try:
+        parsed = make_url(normalized)
+    except Exception:
+        return candidate
+
+    password = parsed.password
+    masked_password = None
+    if password is not None:
+        masked_password = _mask_password_partial(password)
+
+    try:
+        return parsed.set(password=masked_password).render_as_string()
+    except Exception:
+        try:
+            return parsed.render_as_string(hide_password=True)
+        except Exception:
+            return candidate
+
+
 def _split_host(host: str) -> tuple[str, int]:
     """Split a host string with optional port into its components."""
 
@@ -71,6 +116,49 @@ def put_config():
         "[account.config] Received payload for user %s: %s",
         user.id,
         _sanitize_for_logging(payload),
+    )
+    frontend_domain = payload.get("domain")
+    frontend_username = payload.get("username")
+    frontend_password = payload.get("password")
+    frontend_port = payload.get("port")
+    frontend_database = payload.get("db_name")
+    if frontend_database is None:
+        frontend_database = payload.get("database")
+
+    db_host_value = payload.get("db_host")
+    if db_host_value is None:
+        db_host_value = payload.get("dbHost")
+    db_port_value = payload.get("db_port")
+    if db_port_value is None:
+        db_port_value = payload.get("dbPort")
+    db_user_value = payload.get("db_user")
+    if db_user_value is None:
+        db_user_value = payload.get("dbUser")
+    db_name_value = payload.get("db_name")
+    if db_name_value is None:
+        db_name_value = payload.get("dbName")
+    db_password_value = payload.get("db_password")
+    if db_password_value is None:
+        db_password_value = payload.get("dbPassword")
+
+    logger.info(
+        "[DEBUG_DB_CONN] Payload recebido do frontend (user=%s): domain=%s username=%s password=%s port=%s database=%s",
+        user.id,
+        frontend_domain,
+        frontend_username,
+        _mask_password_partial(frontend_password),
+        frontend_port,
+        frontend_database,
+    )
+    logger.info(
+        "[DEBUG_DB_CONN] Payload recebido do frontend (XUI DB) user=%s host=%s port=%s username=%s database=%s password=%s uri=%s",
+        user.id,
+        db_host_value,
+        db_port_value,
+        db_user_value,
+        db_name_value,
+        _mask_password_partial(db_password_value),
+        _render_uri_with_partial_password(payload.get("xuiDbUri")),
     )
 
     link_payload = payload.get("link_m3u") or payload.get("linkM3u") or payload.get("link")
@@ -149,6 +237,16 @@ def put_config():
                 "[account.config] Invalid XUI DB URI for user %s", user.id
             )
             return json_error("URI do banco XUI inválida.", HTTPStatus.BAD_REQUEST)
+        logger.info(
+            "[DEBUG_DB_CONN] Credenciais XUI analisadas (user=%s): host=%s port=%s username=%s database=%s password=%s uri=%s",
+            user.id,
+            db_credentials.get("host"),
+            db_credentials.get("port"),
+            db_credentials.get("username"),
+            db_credentials.get("database"),
+            _mask_password_partial(db_credentials.get("password")),
+            _render_uri_with_partial_password(db_credentials.get("uri")),
+        )
 
     if not domain or not xtream_username or not xtream_password:
         logger.warning(
