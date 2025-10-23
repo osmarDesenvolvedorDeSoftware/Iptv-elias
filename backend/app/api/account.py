@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 from http import HTTPStatus
 from urllib.parse import urlparse
-import mysql.connector
+import pymysql
 from flask import Blueprint, g, jsonify, request
-from mysql.connector import Error as MySQLError
+from pymysql import MySQLError
 
 from typing import Any, Mapping
 
@@ -159,13 +159,16 @@ def put_config():
 
     if db_credentials is not None:
         try:
-            connection = mysql.connector.connect(
+            connection = pymysql.connect(
                 host=db_credentials["host"],
                 port=db_credentials["port"],
                 user=db_credentials["username"],
                 password=db_credentials["password"],
                 database=db_credentials["database"],
-                connection_timeout=5,
+                connect_timeout=5,
+                read_timeout=5,
+                write_timeout=5,
+                charset="utf8mb4",
             )
         except MySQLError as exc:  # pragma: no cover - depends on external resource
             logger.warning(
@@ -179,7 +182,8 @@ def put_config():
             )
 
         try:  # pragma: no cover - depends on external resource
-            connection_ready = bool(connection.is_connected())
+            connection.ping(reconnect=False)
+            connection_ready = True
         finally:
             try:
                 connection.close()
