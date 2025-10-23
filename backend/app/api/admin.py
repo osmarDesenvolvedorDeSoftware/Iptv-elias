@@ -8,6 +8,7 @@ from uuid import uuid4
 import bcrypt
 from flask import Blueprint, current_app, g, jsonify, request
 from sqlalchemy import func, or_
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
 from ..models import (
@@ -425,11 +426,18 @@ def dashboard():
     active_users = User.query.filter_by(is_active=True).count()
     total_jobs = Job.query.count()
     failed_jobs = Job.query.filter_by(status=JobStatus.FAILED).count()
-    last_sync = (
-        db.session.query(func.max(UserConfig.last_sync))
-        .filter(UserConfig.last_sync.isnot(None))
-        .scalar()
-    )
+    try:
+        last_sync = (
+            db.session.query(func.max(UserConfig.last_sync))
+            .filter(UserConfig.last_sync.isnot(None))
+            .scalar()
+        )
+    except SQLAlchemyError as exc:
+        current_app.logger.warning(
+            "[admin] Falha ao obter última sincronização global: %s", exc
+        )
+        db.session.rollback()
+        last_sync = None
 
     stats = {
         "totalUsers": total_users,
