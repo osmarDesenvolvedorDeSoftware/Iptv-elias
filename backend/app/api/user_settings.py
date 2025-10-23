@@ -28,6 +28,18 @@ bp = Blueprint("user_settings", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
 
 
+def _mask_password_partial(password: str | None) -> str:
+    if password is None:
+        return ""
+
+    password_str = str(password)
+    if not password_str:
+        return ""
+
+    visible = password_str[:3]
+    return f"{visible}***"
+
+
 def _password_state(value: str | None) -> str:
     if value is None:
         return "unset"
@@ -48,6 +60,30 @@ def _render_safe_url(url: URL | str | None) -> str:
         return url.render_as_string(hide_password=True)
     except Exception:
         return str(url)
+
+
+def _render_url_with_partial_password(url: URL | str | None) -> str:
+    if url is None:
+        return "<nenhuma>"
+    if isinstance(url, str):
+        try:
+            url = make_url(url)
+        except Exception:
+            return url
+
+    try:
+        password = url.password
+    except AttributeError:
+        return _render_safe_url(url)
+
+    try:
+        if password is None:
+            return url.render_as_string()
+
+        masked_password = _mask_password_partial(password)
+        return url.set(password=masked_password).render_as_string()
+    except Exception:
+        return _render_safe_url(url)
 
 
 def _ssl_error_payload() -> dict[str, Any]:
@@ -271,6 +307,23 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
         masked_uri,
         driver,
     )
+    logger.info(
+        "[DEBUG_DB_CONN] Tentando conectar: user=%s host=%s port=%s db=%s uri=%s",
+        user,
+        host,
+        port,
+        database,
+        url.render_as_string(hide_password=True),
+    )
+    logger.info(
+        "[DEBUG_DB_CONN] Credenciais SQLAlchemy: user=%s host=%s port=%s db=%s password=%s uri=%s",
+        user,
+        host,
+        port,
+        database,
+        _mask_password_partial(password),
+        _render_url_with_partial_password(url),
+    )
     if driver != "mysql+pymysql":
         logger.warning(
             "[SETTINGS][API] _test_db_connection driver inesperado=%s uri=%s",
@@ -280,9 +333,13 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
 
     engine: Engine | None = None
     try:
+        logger.info("[DEBUG_DB_CONN] Criando engine SQLAlchemy")
         engine = create_engine(url, pool_pre_ping=True)
+        logger.info("[DEBUG_DB_CONN] Engine criada")
         with engine.connect() as connection:  # pragma: no cover - depends on external DB
+            logger.info("[DEBUG_DB_CONN] Executando SELECT 1")
             connection.execute(text("SELECT 1"))
+        logger.info("[DEBUG_DB_CONN] Conexão bem-sucedida")
         logger.debug(
             "[SETTINGS][API] _test_db_connection sucesso uri=%s driver=%s",
             masked_uri,
@@ -293,6 +350,19 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
             host,
         )
     except (OperationalError, ProgrammingError) as exc:  # pragma: no cover - depends on external DB
+        if isinstance(exc, OperationalError):
+            orig_args = getattr(exc.orig, "args", [None, None])
+            code = orig_args[0] if isinstance(orig_args, (list, tuple)) and len(orig_args) > 0 else None
+            message = (
+                orig_args[1]
+                if isinstance(orig_args, (list, tuple)) and len(orig_args) > 1
+                else None
+            )
+            logger.warning(
+                "[DEBUG_DB_CONN] OperationalError: code=%s message=%s",
+                code,
+                message,
+            )
         orig = getattr(exc, "orig", None)
         logger.debug(
             "[SETTINGS][API] _test_db_connection falhou uri=%s driver=%s exc=%s orig=%r orig_args=%r",
