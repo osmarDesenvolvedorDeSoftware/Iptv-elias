@@ -30,6 +30,37 @@ from .mysql_errors import (
 logger = logging.getLogger(__name__)
 
 
+def _password_state(value: Any) -> str:
+    if value is None:
+        return "unset"
+    if isinstance(value, str) and value == "":
+        return "blank"
+    return "provided"
+
+
+def _ensure_url(value: URL | str | None) -> URL | None:
+    if value is None:
+        return None
+    if isinstance(value, URL):
+        return value
+    try:
+        return make_url(value)
+    except Exception:
+        return None
+
+
+def _render_safe_url(value: URL | str | None) -> str:
+    if value is None:
+        return "<nenhuma>"
+    url = _ensure_url(value)
+    if url is None:
+        return str(value)
+    try:
+        return url.render_as_string(hide_password=True)
+    except Exception:
+        return str(value)
+
+
 _GENERAL_KEY = "general"
 _SENSITIVE_FIELDS = {"db_pass", "xtream_pass", "tmdb_key"}
 
@@ -222,6 +253,12 @@ def build_mysql_uri(settings: Mapping[str, Any]) -> str | None:
     database = _normalize_optional_string(settings.get("db_name"))
 
     if not host or not user or not database:
+        logger.debug(
+            "[SETTINGS] build_mysql_uri faltando dados host=%s user=%s database=%s",
+            host,
+            user,
+            database,
+        )
         return None
 
     try:
@@ -240,6 +277,25 @@ def build_mysql_uri(settings: Mapping[str, Any]) -> str | None:
         database=database,
     )
 
+    masked_uri = _render_safe_url(url)
+    driver = url.drivername
+    logger.debug(
+        "[SETTINGS] build_mysql_uri host=%s port=%s user=%s database=%s password_state=%s driver=%s uri=%s",
+        host,
+        port,
+        user,
+        database,
+        _password_state(password),
+        driver,
+        masked_uri,
+    )
+    if driver != "mysql+pymysql":
+        logger.warning(
+            "[SETTINGS] build_mysql_uri driver inesperado=%s uri=%s",
+            driver,
+            masked_uri,
+        )
+
     return url.render_as_string(hide_password=False)
 
 
@@ -255,13 +311,28 @@ def _mask_mysql_uri(uri: str | None) -> str:
 def update_tenant_mysql_uri(tenant_id: str, mysql_uri: str, *, reason: str) -> None:
     sanitized = (mysql_uri or "").strip()
     if not sanitized:
+        current_app.logger.debug(
+            "[SETTINGS] update_tenant_mysql_uri ignorado - URI vazia (tenant=%s, origem=%s)",
+            tenant_id,
+            reason,
+        )
         return
 
     config = TenantIntegrationConfig.query.filter_by(tenant_id=tenant_id).first()
     if not config:
+        current_app.logger.debug(
+            "[SETTINGS] update_tenant_mysql_uri ignorado - tenant sem configuração (tenant=%s)",
+            tenant_id,
+        )
         return
 
     if config.xui_db_uri == sanitized:
+        current_app.logger.debug(
+            "[SETTINGS] update_tenant_mysql_uri ignorado - URI inalterada (tenant=%s origem=%s uri=%s)",
+            tenant_id,
+            reason,
+            _mask_mysql_uri(sanitized),
+        )
         return
 
     previous = config.xui_db_uri
@@ -280,7 +351,18 @@ def update_tenant_mysql_uri(tenant_id: str, mysql_uri: str, *, reason: str) -> N
 def sync_tenant_mysql_uri(tenant_id: str, settings: Mapping[str, Any], *, reason: str) -> None:
     mysql_uri = build_mysql_uri(settings)
     if not mysql_uri:
+        logger.debug(
+            "[SETTINGS] sync_tenant_mysql_uri ignorado - sem URI calculada (tenant=%s origem=%s)",
+            tenant_id,
+            reason,
+        )
         return
+    logger.debug(
+        "[SETTINGS] sync_tenant_mysql_uri atualizado (tenant=%s origem=%s uri=%s)",
+        tenant_id,
+        reason,
+        _mask_mysql_uri(mysql_uri),
+    )
     update_tenant_mysql_uri(tenant_id, mysql_uri, reason=reason)
 
 
@@ -462,6 +544,15 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
     if not data.db_pass:
         raise ValueError("Informe a senha do banco para testar a conexão")
 
+    logger.debug(
+        "[SETTINGS] test_connection parâmetros host=%s port=%s user=%s database=%s password_state=%s",
+        data.db_host,
+        data.db_port,
+        data.db_user,
+        data.db_name,
+        _password_state(data.db_pass),
+    )
+
     url = URL.create(
         "mysql+pymysql",
         username=data.db_user,
@@ -471,6 +562,20 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
         database=data.db_name,
     )
 
+    masked_uri = _render_safe_url(url)
+    driver = url.drivername
+    logger.debug(
+        "[SETTINGS] test_connection URL=%s driver=%s",
+        masked_uri,
+        driver,
+    )
+    if driver != "mysql+pymysql":
+        logger.warning(
+            "[SETTINGS] test_connection driver inesperado=%s uri=%s",
+            driver,
+            masked_uri,
+        )
+
     engine: Engine | None = None
     setting = _get_setting(tenant_id, user_id)
     try:
@@ -478,6 +583,15 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
+        orig = getattr(exc, "orig", None)
+        logger.debug(
+            "[SETTINGS] test_connection falhou uri=%s driver=%s exc=%s orig=%r orig_args=%r",
+            masked_uri,
+            driver,
+            exc.__class__.__name__,
+            orig,
+            getattr(orig, "args", ()),
+        )
         stored_value = _merge_defaults(setting.value if setting else None)
         stored_value["last_test_status"] = "error"
         if is_ssl_misconfiguration_error(exc):
@@ -541,6 +655,12 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
     mysql_uri = build_mysql_uri(data.dict())
     if mysql_uri:
         update_tenant_mysql_uri(tenant_id, mysql_uri, reason="test_connection")
+
+    logger.debug(
+        "[SETTINGS] test_connection sucesso uri=%s driver=%s",
+        masked_uri,
+        driver,
+    )
 
     return True, "Conexão estabelecida com sucesso", {
         "testedAt": stored_value["last_test_at"],

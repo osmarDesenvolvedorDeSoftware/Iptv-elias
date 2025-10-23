@@ -9,7 +9,7 @@ from collections.abc import Mapping as MappingABC
 from typing import Any, Iterable, Iterator, Mapping
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.engine import Engine, URL, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
 from .xui_normalizer import NormalizationResult, normalize_sources
@@ -27,6 +27,30 @@ _registry_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
+
+def _ensure_url(value: URL | str | None) -> URL | None:
+    if value is None:
+        return None
+    if isinstance(value, URL):
+        return value
+    try:
+        return make_url(value)
+    except Exception:
+        return None
+
+
+def _render_safe_url(value: URL | str | None) -> str:
+    if value is None:
+        return "<nenhuma>"
+    url = _ensure_url(value)
+    if url is None:
+        return str(value)
+    try:
+        return url.render_as_string(hide_password=True)
+    except Exception:
+        return str(value)
+
+
 @dataclass
 class XuiCredentials:
     uri: str
@@ -41,24 +65,83 @@ def get_engine(tenant_id: str, user_id: int | None, credentials: XuiCredentials)
     if not credentials.uri:
         raise RuntimeError("URI do banco XUI não configurada")
 
+    masked_requested_uri = _render_safe_url(credentials.uri)
+
     with _registry_lock:
         key = _registry_key(tenant_id, user_id)
         engine = _engine_registry.get(key)
         current_uri = _engine_uri_registry.get(key)
-        if engine is None or current_uri != credentials.uri:
-            if engine is not None:
-                engine.dispose()
-            url = make_url(credentials.uri)
+        if engine is not None and current_uri == credentials.uri:
+            try:
+                cached_uri = _render_safe_url(engine.url)
+            except Exception:
+                cached_uri = masked_requested_uri
+            logger.debug(
+                "[XUI_DB] Reutilizando engine existente key=%s uri=%s",
+                key,
+                cached_uri,
+            )
+            return engine
+
+        if engine is not None:
+            logger.debug(
+                "[XUI_DB] Substituindo engine existente key=%s uri_atual=%s nova_uri=%s",
+                key,
+                _render_safe_url(engine.url),
+                masked_requested_uri,
+            )
+            engine.dispose()
+
+        url = make_url(credentials.uri)
+        driver = url.drivername
+        logger.debug(
+            "[XUI_DB] Inicializando nova engine key=%s driver=%s uri=%s",
+            key,
+            driver,
+            masked_requested_uri,
+        )
+        if driver != "mysql+pymysql":
+            logger.warning(
+                "[XUI_DB] Driver inesperado para URI %s: %s",
+                masked_requested_uri,
+                driver,
+            )
             new_engine: Engine | None = None
             try:
                 new_engine = create_engine(
                     credentials.uri, pool_pre_ping=True, pool_recycle=3600
                 )
+                logger.debug(
+                    "[XUI_DB] Engine criada key=%s pool_pre_ping=%s pool_recycle=%s",
+                    key,
+                    True,
+                    3600,
+                )
                 with new_engine.connect() as connection:
+                    logger.debug(
+                        "[XUI_DB] Validando conexão inicial key=%s host=%s database=%s",
+                        key,
+                        url.host or "",
+                        url.database or "",
+                    )
                     connection.execute(text("SELECT 1"))
+                    logger.debug(
+                        "[XUI_DB] Validação inicial concluída key=%s",
+                        key,
+                    )
             except SQLAlchemyError as exc:
                 if new_engine is not None:
                     new_engine.dispose()
+                orig = getattr(exc, "orig", None)
+                logger.debug(
+                    "[XUI_DB] Falha ao inicializar engine key=%s driver=%s uri=%s exc=%s orig=%r orig_args=%r",
+                    key,
+                    driver,
+                    masked_requested_uri,
+                    exc.__class__.__name__,
+                    orig,
+                    getattr(orig, "args", ()),
+                )
                 if is_ssl_misconfiguration_error(exc):
                     logger.warning(
                         "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
@@ -83,6 +166,11 @@ def get_engine(tenant_id: str, user_id: int | None, credentials: XuiCredentials)
             engine = new_engine
             _engine_registry[key] = engine
             _engine_uri_registry[key] = credentials.uri
+            logger.debug(
+                "[XUI_DB] Engine registrada key=%s uri=%s",
+                key,
+                masked_requested_uri,
+            )
         return engine
 
 
@@ -92,7 +180,17 @@ def dispose_engine(tenant_id: str, user_id: int | None = None) -> None:
         engine = _engine_registry.pop(key, None)
         _engine_uri_registry.pop(key, None)
         if engine is not None:
+            logger.debug(
+                "[XUI_DB] Descartando engine key=%s uri=%s",
+                key,
+                _render_safe_url(engine.url),
+            )
             engine.dispose()
+        else:
+            logger.debug(
+                "[XUI_DB] Nenhum engine em cache para descartar key=%s",
+                key,
+            )
 
 
 @contextmanager
@@ -110,9 +208,21 @@ def session_scope(engine: Engine) -> Iterator[Any]:
 
 
 def _connect(engine: Engine):
+    logger.debug(
+        "[XUI_DB] Abrindo conexão para engine uri=%s",
+        _render_safe_url(engine.url),
+    )
     try:
         return engine.connect()
     except SQLAlchemyError as exc:
+        orig = getattr(exc, "orig", None)
+        logger.debug(
+            "[XUI_DB] Falha ao abrir conexão uri=%s exc=%s orig=%r orig_args=%r",
+            _render_safe_url(engine.url),
+            exc.__class__.__name__,
+            orig,
+            getattr(orig, "args", ()),
+        )
         if is_ssl_misconfiguration_error(exc):
             url = engine.url
             logger.warning(
