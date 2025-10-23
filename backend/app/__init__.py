@@ -65,10 +65,21 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
 
     configure_logging(app)
 
-    origins = [origin.strip() for origin in app.config.get("CORS_ORIGINS", "*").split(",") if origin]
+    configured_origins = app.config.get("CORS_ORIGINS", ["*"])
+
+    if isinstance(configured_origins, str):
+        configured_origins = [origin.strip() for origin in configured_origins.split(",") if origin.strip()]
+
+    origins = [origin for origin in configured_origins if origin]
+    allow_all_origins = not origins or origins == ["*"]
+    cors_origins = "*" if allow_all_origins else origins
+
+    log_origins = "*" if allow_all_origins else ", ".join(origins)
+    app.logger.info("CORS allowed origins: %s", log_origins)
+
     cors.init_app(
         app,
-        resources={r"/*": {"origins": origins}},
+        resources={r"/*": {"origins": cors_origins}},
         supports_credentials=True,
         allow_headers=[
             "Content-Type",

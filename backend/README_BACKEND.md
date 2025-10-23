@@ -39,6 +39,13 @@ Backend mínimo viável em Flask para atender ao front IPTV.
 
    O backend já carrega esse arquivo automaticamente (`app/config.py`).
 
+### Configuração de CORS
+
+- Defina `CORS_ORIGINS` no `.env` com as URLs autorizadas separadas por vírgula (ex.: `http://localhost:5173,http://38.22.17.88:5173`).
+- Em produção, utilize os domínios/hosts expostos pelo Nginx/PM2 para evitar bloqueio pelo navegador.
+- Se a variável não for informada, o backend libera todas as origens (`*`), útil apenas para testes rápidos.
+- No log JSON de inicialização (`pm2 logs iptv-backend`), a mensagem `CORS allowed origins` indica quais hosts estão ativos.
+
 ## Migrações do banco principal
 
 1. Garanta que o virtualenv esteja ativo (`source venv/bin/activate`).
