@@ -621,6 +621,11 @@ def test_connection(tenant_id: str, user_id: int, payload: dict[str, Any]) -> Tu
                 data.db_host,
                 data.db_user,
             )
+            logger.warning(
+                "[SETTINGS] test_connection acesso negado uri=%s driver=%s",
+                masked_uri,
+                driver,
+            )
             response = build_access_denied_response(user=data.db_user, database=data.db_name)
             message = response["error"]["message"]
             stored_value["last_test_message"] = message
