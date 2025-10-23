@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '../../config';
 import { get, isMockEnabled, post } from '../adapters/ApiAdapter';
 import { MockAdapter } from '../adapters/MockAdapter';
 import {
@@ -22,13 +23,11 @@ export interface JobLogsParams {
 
 export interface HistoryQuery extends ImportHistoryFilters {}
 
-const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
-
 function ensureBaseUrl(): string {
-  if (!apiBaseUrl) {
+  if (!API_BASE_URL) {
     throw new Error('VITE_API_BASE_URL não configurada.');
   }
-  return apiBaseUrl;
+  return API_BASE_URL;
 }
 
 function buildQuery(params: Record<string, unknown>): string {
