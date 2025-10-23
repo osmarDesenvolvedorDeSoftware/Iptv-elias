@@ -57,6 +57,74 @@ interface AccessDeniedContentOptions {
   hint?: string | null | undefined;
 }
 
+interface MysqlUriParts {
+  host: string;
+  port: number | null;
+  username: string;
+  password: string;
+  database: string;
+}
+
+function decodeMysqlComponent(value: string): string {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, '%20'));
+  } catch (error) {
+    console.warn('Não foi possível decodificar componente da URI do banco.', error);
+    return value;
+  }
+}
+
+function parseMysqlUri(uri: string | null | undefined): MysqlUriParts | null {
+  if (!uri || typeof uri !== 'string') {
+    return null;
+  }
+
+  try {
+    const normalized = uri.includes('://') ? uri : `mysql+pymysql://${uri}`;
+    const parsed = new URL(normalized);
+    const database = parsed.pathname.replace(/^\//, '');
+
+    return {
+      host: parsed.hostname ?? '',
+      port: parsed.port ? Number(parsed.port) : null,
+      username: decodeMysqlComponent(parsed.username),
+      password: decodeMysqlComponent(parsed.password ?? ''),
+      database: decodeMysqlComponent(database),
+    };
+  } catch (error) {
+    console.warn('Falha ao interpretar URI do banco XUI.', error);
+    return null;
+  }
+}
+
+function buildMysqlUri(options: {
+  host: string;
+  port?: number | null | undefined;
+  username: string;
+  password?: string | null | undefined;
+  database: string;
+}): string | null {
+  const host = options.host.trim();
+  const username = options.username.trim();
+  const database = options.database.trim();
+
+  if (!host || !username || !database) {
+    return null;
+  }
+
+  let port = 3306;
+  if (typeof options.port === 'number' && Number.isFinite(options.port) && options.port > 0) {
+    port = options.port;
+  }
+
+  const encodedUser = encodeURIComponent(username);
+  const encodedPassword =
+    options.password && options.password.length > 0 ? `:${encodeURIComponent(options.password)}` : '';
+  const encodedDatabase = encodeURIComponent(database);
+
+  return `mysql+pymysql://${encodedUser}${encodedPassword}@${host}:${port}/${encodedDatabase}`;
+}
+
 function createAccessDeniedContent({
   error,
   fallbackMessage,
@@ -325,6 +393,11 @@ export default function AccountConfig() {
     const trimmedDomain = formState.domain.trim();
     const trimmedUsername = formState.username.trim();
     const trimmedPort = formState.port.trim();
+    const trimmedDbHost = formState.dbHost.trim();
+    const trimmedDbPort = formState.dbPort.trim();
+    const trimmedDbUser = formState.dbUser.trim();
+    const trimmedDbPassword = formState.dbPassword.trim();
+    const trimmedDbName = formState.dbName.trim();
 
     const payload: AccountConfigPayload = {
       domain: trimmedDomain || null,
@@ -349,6 +422,49 @@ export default function AccountConfig() {
 
     if (link.trim()) {
       payload.link_m3u = link.trim();
+    }
+
+    let numericDbPort: number | null = null;
+    if (trimmedDbPort) {
+      const parsedPort = Number(trimmedDbPort);
+      if (Number.isNaN(parsedPort)) {
+        setError('Porta do banco inválida.');
+        setIsTesting(false);
+        return;
+      }
+      numericDbPort = parsedPort;
+    }
+
+    const existingUri = parseMysqlUri(config?.xuiDbUri ?? null);
+    const effectiveHost = trimmedDbHost || existingUri?.host || '';
+    const effectiveUser = trimmedDbUser || existingUri?.username || '';
+    const effectiveDatabase = trimmedDbName || existingUri?.database || '';
+    const effectivePort =
+      numericDbPort ??
+      (existingUri?.port !== null && existingUri?.port !== undefined ? existingUri.port : undefined) ??
+      (typeof config?.dbPort === 'number' ? config.dbPort : undefined);
+
+    let effectivePassword: string | null | undefined;
+    if (trimmedDbPassword) {
+      effectivePassword = trimmedDbPassword;
+    } else if (existingUri) {
+      effectivePassword = existingUri.password;
+    } else {
+      effectivePassword = '';
+    }
+
+    const resolvedDbUri = buildMysqlUri({
+      host: effectiveHost,
+      port: effectivePort,
+      username: effectiveUser,
+      password: effectivePassword,
+      database: effectiveDatabase,
+    });
+
+    if (resolvedDbUri) {
+      payload.xuiDbUri = resolvedDbUri;
+    } else if (config?.xuiDbUri) {
+      payload.xuiDbUri = config.xuiDbUri;
     }
 
     try {
