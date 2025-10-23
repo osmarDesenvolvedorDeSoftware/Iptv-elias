@@ -1,3 +1,4 @@
+from http import HTTPStatus
 from logging.config import dictConfig
 
 import flask
@@ -76,11 +77,16 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     cors_origins = "*" if allow_all_origins else origins
 
     log_origins = "*" if allow_all_origins else ", ".join(origins)
-    app.logger.info("CORS allowed origins: %s", log_origins)
+    app.logger.info("CORS ativo para: %s", log_origins)
 
     cors.init_app(
         app,
-        resources={r"/*": {"origins": cors_origins}},
+        resources={
+            r"/*": {"origins": cors_origins},
+            r"/admin/*": {"origins": cors_origins},
+            r"/metrics/*": {"origins": cors_origins},
+            r"/imports/*": {"origins": cors_origins},
+        },
         supports_credentials=True,
         allow_headers=[
             "Content-Type",
@@ -94,24 +100,36 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
 
     @app.after_request
     def add_cors_headers(response):
-        """Ensure all responses include the expected CORS headers."""
-
         origin = flask.request.headers.get("Origin")
         if origin:
-            response.headers.add("Access-Control-Allow-Origin", origin)
-            response.headers.add("Vary", "Origin")
-            response.headers.add(
-                "Access-Control-Allow-Headers",
-                "Content-Type,Authorization,X-Tenant-ID",
-            )
-            response.headers.add(
-                "Access-Control-Allow-Methods",
-                "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-            )
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers[
+                "Access-Control-Allow-Headers"
+            ] = "Content-Type, Authorization, X-Tenant-ID"
+            response.headers[
+                "Access-Control-Allow-Methods"
+            ] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            response.headers["Vary"] = "Origin"
         return response
 
     db.init_app(app)
     jwt.init_app(app)
+
+    @jwt.invalid_token_loader
+    def handle_invalid_token(error: str):  # type: ignore[override]
+        app.logger.warning("[jwt] Token inválido recebido: %s", error)
+        return (
+            flask.jsonify({"message": "Token inválido"}),
+            HTTPStatus.UNAUTHORIZED,
+        )
+
+    @jwt.unauthorized_loader
+    def handle_missing_token(error: str):  # type: ignore[override]
+        app.logger.warning("[jwt] Requisição sem token ou com token rejeitado: %s", error)
+        return (
+            flask.jsonify({"message": "Autenticação necessária"}),
+            HTTPStatus.UNAUTHORIZED,
+        )
 
     register_blueprints(app)
 
