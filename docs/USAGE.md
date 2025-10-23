@@ -27,11 +27,12 @@ O IPTV Elias é um painel administrativo completo para catálogos IPTV. Ele comb
    pm2 save && pm2 startup
    ```
    A API responderá em `http://localhost:5000` e o worker consumirá a fila `default` via Redis local.
-5. **Instalar dependências do painel:**
+5. **Instalar dependências do painel (executar em `ui/`):**
    ```bash
+   cd ui
    npm install
    ```
-6. **Executar o painel:**
+6. **Executar o painel (ainda dentro de `ui/`):**
    ```bash
    npm run dev
    ```

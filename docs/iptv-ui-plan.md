@@ -226,7 +226,7 @@
 ### Alternância entre API real e mocks
 - Defina `VITE_USE_MOCK=true` no ambiente (ex.: `.env.local`) para utilizar apenas os JSONs de `MockAdapter`.
 - Com `VITE_USE_MOCK=false`, todos os services (`authService`, `importerService`, `bouquetService`, `logService`, `configService`) passam a usar o `ApiAdapter` e os endpoints HTTP reais definidos acima.
-- A flag pode ser alternada em tempo de build/execução local (ex.: `VITE_USE_MOCK=true npm run dev` para mock vs `npm run dev` em modo real com `.env.local` configurado).
+- A flag pode ser alternada em tempo de build/execução local (ex.: `cd ui && VITE_USE_MOCK=true npm run dev` para mock vs `cd ui && npm run dev` em modo real com `.env.local` configurado).
 
 ### Autenticação JWT e multi-tenant
 - Login (`POST /auth/login`) retorna `token`, `refreshToken`, `expiresInSec` e `user`. O `AuthProvider` persiste `accessToken`, `refreshToken`, `tenantId` e `expiresAt` em `localStorage`.
@@ -331,7 +331,7 @@
 - Otimizar performance (lazy load de páginas, memorização de listas grandes, compressão de imagens).
 
 ### Fase 3B – Deploy & CI/CD ✅
-- Novo playbook [`docs/DEPLOY_PLAYBOOK.md`](DEPLOY_PLAYBOOK.md) descrevendo build (`npm run build`), publicação estática (Nginx, GitHub Pages, Vercel) e rollback.
+- Novo playbook [`docs/DEPLOY_PLAYBOOK.md`](DEPLOY_PLAYBOOK.md) descrevendo build (`cd ui && npm run build`), publicação estática (Nginx, GitHub Pages, Vercel) e rollback.
 - Workflow `deploy.yml` no GitHub Actions executando `npm ci`, lint (`eslint . --max-warnings=0`), build, upload de artefato e publicação em `gh-pages`, com opção automática para Vercel via segredos (`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`).
 - Documentação atualizada (README com badge de status e seção “Deploy Automatizado”) alinhando requisitos de Node 20 LTS / npm 10+ e direcionando a equipe para o playbook.
 

@@ -5,11 +5,12 @@ Este playbook descreve o fluxo oficial de build, publicação e rollback do fron
 ## 1. Build da aplicação
 
 1. Certifique-se de usar **Node.js 20 LTS** e **npm 10 ou superior**.
-2. Instale as dependências a partir da raiz do repositório:
+2. Instale as dependências dentro da pasta `ui/`:
    ```bash
+   cd ui
    npm install
    ```
-3. Gere o bundle otimizado:
+3. Gere o bundle otimizado (ainda em `ui/`):
    ```bash
    npm run build
    ```
@@ -69,7 +70,7 @@ Para utilizar Vercel em paralelo ou como fallback:
    npx vercel deploy --prebuilt --prod --yes
    ```
 
-Caso prefira um deploy manual fora do GitHub Actions, execute os mesmos comandos localmente após `npm run build` e forneça os tokens via `VERCEL_TOKEN`, `VERCEL_ORG_ID` e `VERCEL_PROJECT_ID`.
+Caso prefira um deploy manual fora do GitHub Actions, execute os mesmos comandos localmente após `cd ui && npm run build` e forneça os tokens via `VERCEL_TOKEN`, `VERCEL_ORG_ID` e `VERCEL_PROJECT_ID`.
 
 ## 5. Rollback rápido
 
@@ -86,7 +87,7 @@ Caso prefira um deploy manual fora do GitHub Actions, execute os mesmos comandos
 
 ## 7. Integração com CI/CD
 
-- O pipeline `Deploy IPTV UI` executa `npm ci`, `npx eslint . --max-warnings=0` e `npm run build` antes de publicar.
+- O pipeline `Deploy IPTV UI` executa `npm ci`, `npx eslint . --max-warnings=0` e `npm run build` dentro de `ui/` antes de publicar.
 - Um artefato com a pasta `dist/` é anexado à execução para auditoria.
 - Deploys via push em `main` são automáticos; execuções manuais permitem forçar uma publicação sem novo commit.
 - Utilize environments (`production`, `staging`) no GitHub Actions se precisar de aprovações adicionais.
