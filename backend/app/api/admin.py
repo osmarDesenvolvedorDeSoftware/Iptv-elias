@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import bcrypt
 from flask import Blueprint, current_app, g, jsonify, request
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
@@ -449,7 +449,10 @@ def dashboard():
 
     recent_errors = (
         Job.query.filter(Job.status == JobStatus.FAILED)
-        .order_by(Job.finished_at.desc().nullslast())
+        .order_by(
+            case((Job.finished_at.is_(None), 1), else_=0),
+            Job.finished_at.desc(),
+        )
         .limit(10)
         .all()
     )
