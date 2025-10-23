@@ -91,47 +91,47 @@ def put_config():
     else:
         db_uri_candidate = str(raw_db_uri).strip()
 
-    if not db_uri_candidate:
-        return json_error("Informe a URI do banco XUI para validar a conexão.", HTTPStatus.BAD_REQUEST)
-
-    db_credentials = parse_mysql_uri(db_uri_candidate)
-    if not db_credentials:
-        return json_error("URI do banco XUI inválida.", HTTPStatus.BAD_REQUEST)
+    db_credentials = None
+    connection_ready = False
+    if db_uri_candidate:
+        db_credentials = parse_mysql_uri(db_uri_candidate)
+        if not db_credentials:
+            return json_error("URI do banco XUI inválida.", HTTPStatus.BAD_REQUEST)
 
     if not domain or not xtream_username or not xtream_password:
         return json_error("Informe domínio, usuário e senha para validar a conexão.", HTTPStatus.BAD_REQUEST)
 
-    try:
-        connection = mysql.connector.connect(
-            host=db_credentials["host"],
-            port=db_credentials["port"],
-            user=db_credentials["username"],
-            password=db_credentials["password"],
-            database=db_credentials["database"],
-            connection_timeout=5,
-        )
-    except MySQLError as exc:  # pragma: no cover - depends on external resource
-        return json_error(
-            f"Não foi possível conectar ao banco XUI: {exc}",
-            HTTPStatus.BAD_REQUEST,
-        )
-
-    connection_ready = False
-    try:  # pragma: no cover - depends on external resource
-        connection_ready = bool(connection.is_connected())
-    finally:
+    if db_credentials is not None:
         try:
-            connection.close()
-        except MySQLError:
-            pass
+            connection = mysql.connector.connect(
+                host=db_credentials["host"],
+                port=db_credentials["port"],
+                user=db_credentials["username"],
+                password=db_credentials["password"],
+                database=db_credentials["database"],
+                connection_timeout=5,
+            )
+        except MySQLError as exc:  # pragma: no cover - depends on external resource
+            return json_error(
+                f"Não foi possível conectar ao banco XUI: {exc}",
+                HTTPStatus.BAD_REQUEST,
+            )
 
-    if not connection_ready:
-        return json_error(
-            "Não foi possível validar a conexão com o banco XUI.",
-            HTTPStatus.BAD_REQUEST,
-        )
+        try:  # pragma: no cover - depends on external resource
+            connection_ready = bool(connection.is_connected())
+        finally:
+            try:
+                connection.close()
+            except MySQLError:
+                pass
 
-    payload["xuiDbUri"] = db_credentials["uri"]
+        if not connection_ready:
+            return json_error(
+                "Não foi possível validar a conexão com o banco XUI.",
+                HTTPStatus.BAD_REQUEST,
+            )
+
+        payload["xuiDbUri"] = db_credentials["uri"]
 
     try:
         config, has_base = update_user_config(user, payload)
@@ -139,7 +139,7 @@ def put_config():
         return json_error(str(exc), HTTPStatus.BAD_REQUEST)
 
     response = config.to_dict()
-    response["connectionReady"] = True
+    response["connectionReady"] = connection_ready
     response["hasBase"] = has_base
     return jsonify(response), HTTPStatus.OK
 
