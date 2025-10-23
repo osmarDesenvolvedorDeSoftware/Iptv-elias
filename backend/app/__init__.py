@@ -88,17 +88,27 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
             "X-Tenant-ID",
         ],
         expose_headers=["X-Tenant-ID"],
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        automatic_options=True,
     )
 
-    @app.before_request
-    def handle_preflight():
-        """Ensure OPTIONS requests receive proper CORS headers."""
+    @app.after_request
+    def add_cors_headers(response):
+        """Ensure all responses include the expected CORS headers."""
 
-        if flask.request.method == "OPTIONS":
-            app.logger.debug("Preflight handled for %s", flask.request.path)
-            return "", 200
-
-    app.logger.info("CORS preflight handler registered and active.")
+        origin = flask.request.headers.get("Origin")
+        if origin:
+            response.headers.add("Access-Control-Allow-Origin", origin)
+            response.headers.add("Vary", "Origin")
+            response.headers.add(
+                "Access-Control-Allow-Headers",
+                "Content-Type,Authorization,X-Tenant-ID",
+            )
+            response.headers.add(
+                "Access-Control-Allow-Methods",
+                "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+            )
+        return response
 
     db.init_app(app)
     jwt.init_app(app)
