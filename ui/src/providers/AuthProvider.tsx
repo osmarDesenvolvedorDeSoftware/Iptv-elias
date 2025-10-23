@@ -35,7 +35,21 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const STORAGE_KEY = 'iptv-auth';
+const ACCESS_TOKEN_STORAGE_KEY = 'accessToken';
 const REFRESH_THRESHOLD_MS = 30_000;
+
+function syncAccessToken(token: string | null) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (!token) {
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+}
 
 function readStoredSession(): StoredSession | null {
   if (typeof window === 'undefined') {
@@ -105,6 +119,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       setSession(nextSession);
       persist(nextSession);
+      syncAccessToken(payload.token);
       setIsLoading(false);
     },
     [persist],
@@ -113,6 +128,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const clearSession = useCallback(() => {
     setSession(null);
     persist(null);
+    syncAccessToken(null);
     setIsLoading(false);
   }, [persist]);
 
@@ -156,6 +172,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       if (!cancelled) {
         setSession(stored);
+        syncAccessToken(stored.accessToken);
       }
 
       const timeUntilExpiry = stored.expiresAt - Date.now();
@@ -218,15 +235,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [refresh, session]);
 
   useEffect(() => {
+    const getAccessToken = () => {
+      if (typeof window === 'undefined') {
+        return null;
+      }
+
+      return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+    };
+
     configureAuthHandlers(
       session
         ? {
-            getAccessToken: () => session.accessToken,
+            getAccessToken,
             getTenantId: () => session.user.tenantId,
             refresh,
             onAuthFailure: clearSession,
           }
-        : null,
+        : { getAccessToken, onAuthFailure: clearSession },
     );
   }, [clearSession, refresh, session]);
 
