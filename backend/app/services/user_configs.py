@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from datetime import datetime
 from typing import Any, Tuple
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import urlparse
 
 import bcrypt
 from flask import current_app
@@ -30,15 +31,12 @@ def _ensure_integration(tenant_id: str) -> TenantIntegrationConfig:
     return integration
 
 
-_PERCENT_ENCODED_PATTERN = re.compile(r"%[0-9A-Fa-f]{2}")
-
-
 def safe_encode_password(password: str) -> str:
     if not password:
         return ""
-    if _PERCENT_ENCODED_PATTERN.search(password):
+    if re.search(r"%[0-9A-Fa-f]{2}", password):
         return password
-    return quote_plus(password)
+    return urllib.parse.quote_plus(password)
 
 
 def parse_mysql_uri(uri: str | None) -> dict[str, Any] | None:
@@ -69,7 +67,7 @@ def parse_mysql_uri(uri: str | None) -> dict[str, Any] | None:
     query = f"?{parsed.query}" if parsed.query else ""
     fragment = f"#{parsed.fragment}" if parsed.fragment else ""
 
-    encoded_user = quote_plus(username)
+    encoded_user = urllib.parse.quote_plus(username)
     password_part = ""
     if password is not None:
         encoded_password = safe_encode_password(password)

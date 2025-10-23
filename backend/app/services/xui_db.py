@@ -106,71 +106,84 @@ def get_engine(tenant_id: str, user_id: int | None, credentials: XuiCredentials)
                 masked_requested_uri,
                 driver,
             )
-            new_engine: Engine | None = None
-            try:
-                new_engine = create_engine(
-                    credentials.uri, pool_pre_ping=True, pool_recycle=3600
-                )
-                logger.debug(
-                    "[XUI_DB] Engine criada key=%s pool_pre_ping=%s pool_recycle=%s",
-                    key,
-                    True,
-                    3600,
-                )
-                with new_engine.connect() as connection:
-                    logger.debug(
-                        "[XUI_DB] Validando conexão inicial key=%s host=%s database=%s",
-                        key,
-                        url.host or "",
-                        url.database or "",
-                    )
-                    connection.execute(text("SELECT 1"))
-                    logger.debug(
-                        "[XUI_DB] Validação inicial concluída key=%s",
-                        key,
-                    )
-            except SQLAlchemyError as exc:
-                if new_engine is not None:
-                    new_engine.dispose()
-                orig = getattr(exc, "orig", None)
-                logger.debug(
-                    "[XUI_DB] Falha ao inicializar engine key=%s driver=%s uri=%s exc=%s orig=%r orig_args=%r",
-                    key,
-                    driver,
-                    masked_requested_uri,
-                    exc.__class__.__name__,
-                    orig,
-                    getattr(orig, "args", ()),
-                )
-                if is_ssl_misconfiguration_error(exc):
-                    logger.warning(
-                        "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
-                        url.host or "",
-                        url.username or "",
-                    )
-                    raise MysqlSslMisconfigurationError(
-                        host=url.host or "", user=url.username or ""
-                    ) from exc
-                if is_access_denied_error(exc):
-                    logger.warning(
-                        "[DB] Access denied on remote MySQL host %s (user=%s)",
-                        url.host or "",
-                        url.username or "",
-                    )
-                    raise MysqlAccessDeniedError(
-                        host=url.host or "",
-                        user=url.username or "",
-                        database=url.database or "",
-                    ) from exc
-                raise
-            engine = new_engine
-            _engine_registry[key] = engine
-            _engine_uri_registry[key] = credentials.uri
-            logger.debug(
-                "[XUI_DB] Engine registrada key=%s uri=%s",
-                key,
-                masked_requested_uri,
+
+        new_engine: Engine | None = None
+        try:
+            new_engine = create_engine(
+                credentials.uri, pool_pre_ping=True, pool_recycle=3600
             )
+            logger.debug(
+                "[XUI_DB] Engine criada key=%s pool_pre_ping=%s pool_recycle=%s",
+                key,
+                True,
+                3600,
+            )
+            with new_engine.connect() as connection:
+                logger.debug(
+                    "[XUI_DB] Validando conexão inicial key=%s host=%s database=%s",
+                    key,
+                    url.host or "",
+                    url.database or "",
+                )
+                connection.execute(text("SELECT 1"))
+                logger.debug(
+                    "[XUI_DB] Validação inicial concluída key=%s",
+                    key,
+                )
+        except SQLAlchemyError as exc:
+            if new_engine is not None:
+                new_engine.dispose()
+            orig = getattr(exc, "orig", None)
+            logger.debug(
+                "[XUI_DB] Falha ao inicializar engine key=%s driver=%s uri=%s exc=%s orig=%r orig_args=%r",
+                key,
+                driver,
+                masked_requested_uri,
+                exc.__class__.__name__,
+                orig,
+                getattr(orig, "args", ()),
+            )
+            if is_ssl_misconfiguration_error(exc):
+                logger.warning(
+                    "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s) uri=%s",
+                    url.host or "",
+                    url.username or "",
+                    _render_safe_url(url),
+                )
+                raise MysqlSslMisconfigurationError(
+                    host=url.host or "", user=url.username or ""
+                ) from exc
+            if is_access_denied_error(exc):
+                masked_url = _render_safe_url(url)
+                logger.warning(
+                    "[DB] Access denied on remote MySQL host %s (user=%s) uri=%s",
+                    url.host or "",
+                    url.username or "",
+                    masked_url,
+                )
+                logger.warning(
+                    "[XUI_DB] Falha de credencial ao inicializar engine key=%s uri=%s",
+                    key,
+                    masked_url,
+                )
+                raise MysqlAccessDeniedError(
+                    host=url.host or "",
+                    user=url.username or "",
+                    database=url.database or "",
+                ) from exc
+            raise
+        if new_engine is None:
+            raise RuntimeError(
+                "[XUI_DB] Não foi possível inicializar engine para a URI fornecida"
+            )
+        engine = new_engine
+        _engine_registry[key] = engine
+        _engine_uri_registry[key] = credentials.uri
+        logger.debug(
+            "[XUI_DB] Engine registrada key=%s uri=%s",
+            key,
+            masked_requested_uri,
+        )
         return engine
 
 
@@ -225,20 +238,28 @@ def _connect(engine: Engine):
         )
         if is_ssl_misconfiguration_error(exc):
             url = engine.url
+            masked_url = _render_safe_url(url)
             logger.warning(
-                "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
+                "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s) uri=%s",
                 url.host or "",
                 url.username or "",
+                masked_url,
             )
             raise MysqlSslMisconfigurationError(
                 host=url.host or "", user=url.username or ""
             ) from exc
         if is_access_denied_error(exc):
             url = engine.url
+            masked_url = _render_safe_url(url)
             logger.warning(
-                "[DB] Access denied on remote MySQL host %s (user=%s)",
+                "[DB] Access denied on remote MySQL host %s (user=%s) uri=%s",
                 url.host or "",
                 url.username or "",
+                masked_url,
+            )
+            logger.warning(
+                "[XUI_DB] Falha de credencial ao abrir conexão uri=%s",
+                masked_url,
             )
             raise MysqlAccessDeniedError(
                 host=url.host or "",
@@ -249,9 +270,19 @@ def _connect(engine: Engine):
 
 
 class XuiRepository:
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine | None) -> None:
         self.engine = engine
         self._database_name: str | None = None
+
+    def _require_engine(self) -> Engine:
+        if not self.engine:
+            logger.error(
+                "[XUI_DB] Engine não inicializado ao acessar repositório"
+            )
+            raise RuntimeError(
+                "[XUI_DB] Engine não inicializado — verifique configuração ou permissão de acesso."
+            )
+        return self.engine
 
     def _serialize_categories(self, category_ids: Iterable[int]) -> str:
         normalized: list[int] = []
@@ -278,7 +309,12 @@ class XuiRepository:
         return value
 
     def ensure_compatibility(self) -> None:
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        logger.info(
+            "[XUI_DB] ensure_compatibility iniciada para uri=%s",
+            _render_safe_url(engine.url),
+        )
+        with session_scope(engine) as conn:
             schema = self._database(conn)
             self._ensure_column(conn, schema, "streams", "source_tag_filmes", "ALTER TABLE `streams` ADD COLUMN `source_tag_filmes` VARCHAR(255) NULL")
             self._ensure_column(conn, schema, "streams_series", "source_tag", "ALTER TABLE `streams_series` ADD COLUMN `source_tag` VARCHAR(255) NULL")
@@ -296,7 +332,8 @@ class XuiRepository:
             connection.execute(text(ddl))
 
     def normalize_sources(self) -> NormalizationResult:
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        with session_scope(engine) as conn:
             result = normalize_sources(conn)
             return result
 
@@ -309,7 +346,8 @@ class XuiRepository:
             LIMIT 1
             """
         )
-        with _connect(self.engine) as conn:
+        engine = self._require_engine()
+        with _connect(engine) as conn:
             result = conn.execute(query, {"url": url})
             row = result.mappings().first()
             if not row:
@@ -340,7 +378,8 @@ class XuiRepository:
             LIMIT 1
             """
         )
-        with _connect(self.engine) as conn:
+        engine = self._require_engine()
+        with _connect(engine) as conn:
             result = conn.execute(query, {"url": url})
             row = result.mappings().first()
             if not row:
@@ -391,7 +430,8 @@ class XuiRepository:
             WHERE id = :id
             """
         )
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        with session_scope(engine) as conn:
             conn.execute(statement, payload)
 
     def update_episode_metadata(
@@ -423,7 +463,8 @@ class XuiRepository:
             WHERE id = :id
             """
         )
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        with session_scope(engine) as conn:
             conn.execute(statement, payload)
 
     def insert_movie(
@@ -458,7 +499,8 @@ class XuiRepository:
                  :movie_properties, :direct_source, :target_container, :source_tag_filmes)
             """
         )
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        with session_scope(engine) as conn:
             result = conn.execute(statement, payload)
             stream_id = result.lastrowid
             return int(stream_id)
@@ -466,7 +508,8 @@ class XuiRepository:
     def append_movie_to_bouquet(self, bouquet_id: int, stream_id: int) -> None:
         if not bouquet_id:
             return
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        with session_scope(engine) as conn:
             current = conn.execute(
                 text("SELECT bouquet_movies FROM bouquets WHERE id = :id FOR UPDATE"),
                 {"id": bouquet_id},
@@ -490,7 +533,8 @@ class XuiRepository:
             LIMIT 1
             """
         )
-        with _connect(self.engine) as conn:
+        engine = self._require_engine()
+        with _connect(engine) as conn:
             result = conn.execute(query, {"title": title, "tag": source_tag})
             row = result.mappings().first()
             if row:
@@ -549,14 +593,16 @@ class XuiRepository:
                  :rating, :youtube_trailer, :tmdb_language, :source_tag)
             """
         )
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        with session_scope(engine) as conn:
             result = conn.execute(statement, payload)
             return int(result.lastrowid)
 
     def append_series_to_bouquet(self, bouquet_id: int, series_id: int) -> None:
         if not bouquet_id:
             return
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        with session_scope(engine) as conn:
             current = conn.execute(
                 text("SELECT bouquet_series FROM bouquets WHERE id = :id FOR UPDATE"),
                 {"id": bouquet_id},
@@ -611,7 +657,8 @@ class XuiRepository:
             VALUES (:season_num, :episode_num, :series_id, :stream_id)
             """
         )
-        with session_scope(self.engine) as conn:
+        engine = self._require_engine()
+        with session_scope(engine) as conn:
             result = conn.execute(insert_stream, stream_payload)
             stream_id = int(result.lastrowid)
             conn.execute(
