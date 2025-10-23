@@ -16,7 +16,13 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
     )
     op.add_column("users", sa.Column("last_login", sa.DateTime(), nullable=True))
-    op.alter_column("users", "role", server_default="user", existing_type=sa.String(length=50))
+
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table("users") as batch_op:
+            batch_op.alter_column("role", server_default="user", existing_type=sa.String(length=50))
+    else:
+        op.alter_column("users", "role", server_default="user", existing_type=sa.String(length=50))
 
     op.create_table(
         "user_configs",
@@ -45,4 +51,9 @@ def downgrade() -> None:
     op.drop_table("user_configs")
     op.drop_column("users", "last_login")
     op.drop_column("users", "is_active")
-    op.alter_column("users", "role", server_default="admin", existing_type=sa.String(length=50))
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table("users") as batch_op:
+            batch_op.alter_column("role", server_default="admin", existing_type=sa.String(length=50))
+    else:
+        op.alter_column("users", "role", server_default="admin", existing_type=sa.String(length=50))

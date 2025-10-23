@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from logging.config import fileConfig
 from pathlib import Path
 
@@ -7,14 +8,21 @@ from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
+BASE_DIR = Path(__file__).resolve().parents[1]
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR.parent / ".env")
+
+if not os.getenv("SQLALCHEMY_DATABASE_URI") and not os.getenv("DATABASE_URL"):
+    sqlite_path = BASE_DIR / "app.db"
+    os.environ.setdefault("DATABASE_URL", f"sqlite:///{sqlite_path}")
+
 from app.extensions import db
 from app import models  # noqa: F401
 
 config = context.config
-
-BASE_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(BASE_DIR / ".env")
-load_dotenv(BASE_DIR.parent / ".env")
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
