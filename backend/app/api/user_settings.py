@@ -189,13 +189,13 @@ def _build_user_payload(
 
 
 def _test_db_connection(host: str, port: int, user: str, password: str | None, database: str) -> None:
-    if not host or not database:
-        raise ValueError("Informe a URI do banco XUI para validar a conexão.")
+    if not host or not user or not database:
+        raise ValueError("Informe host, usuário e banco do XUI para validar a conexão.")
 
     url = URL.create(
         "mysql+pymysql",
-        username=user or "",
-        password=password or "",
+        username=user,
+        password=password,
         host=host,
         port=port,
         database=database,
