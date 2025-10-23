@@ -1,3 +1,5 @@
+import { API_BASE_URL } from '../../config';
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface ApiError {
@@ -22,8 +24,6 @@ interface AuthHandlers {
   refresh?: () => Promise<boolean>;
   onAuthFailure?: () => void;
 }
-
-const baseUrl = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
 const isDevelopment = Boolean(import.meta.env.DEV);
 
@@ -141,6 +141,8 @@ function buildUrl(path: string): string {
   if (/^https?:/i.test(path)) {
     return path;
   }
+
+  const baseUrl = API_BASE_URL;
 
   if (!baseUrl) {
     throw new Error('VITE_API_BASE_URL não configurada.');
