@@ -146,6 +146,12 @@ module.exports = {
 2. **Vite rodando na pasta do código-fonte** – o Vite espera encontrar `src/`, `public/` e os arquivos de configuração no diretório raiz do frontend. Executá-lo fora disso (na raiz do repositório) exige hacks e gera confusão com `.env`.
 3. **Build em `dist/` na raiz** – permite publicar backend e frontend no mesmo servidor. O Nginx pode servir `dist/` enquanto o Gunicorn/PM2 atende a API Flask em paralelo, mantendo tudo dentro de `/root/Iptv-elias`.
 
+## 💾 Bancos de dados do painel
+
+- O `SQLALCHEMY_DATABASE_URI` configura **apenas o banco local do painel**, usado para armazenar usuários, preferências e históricos internos.
+- As credenciais do XUI informadas na tela de configurações são validadas sob demanda com uma conexão temporária. Quando o teste passa, o URI remoto é salvo no cadastro do usuário para que os jobs de sincronização consultem diretamente o banco XUI.
+- Assim, o banco local continua isolado para o painel, enquanto o banco remoto do XUI só é acessado durante testes ou sincronizações.
+
 
 ## Estrutura atual
 

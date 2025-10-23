@@ -68,6 +68,8 @@ cd ..
 
 A mensagem `Access denied` ou erros de SSL indicam que o banco não está aceitando o IP atual. Conexões bem-sucedidas retornam `None` silenciosamente.
 
+> 💡 O banco configurado em `SQLALCHEMY_DATABASE_URI` serve somente ao painel. As credenciais remotas informadas no frontend geram uma engine temporária para teste e, após a validação, ficam salvas nas configurações do usuário/tenant. Dessa forma o painel segue usando o banco local, enquanto os jobs consultam o XUI remoto sob demanda.
+
 ## Execução com PM2
 
 Antes de iniciar o orquestrador, crie os diretórios de log persistentes para backend e frontend:

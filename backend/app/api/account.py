@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 from http import HTTPStatus
 from urllib.parse import urlparse
-import pymysql
-from flask import Blueprint, g, jsonify, request
-from pymysql import MySQLError
-
 from typing import Any, Mapping
+
+from flask import Blueprint, g, jsonify, request
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
+from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 
 from ..models import User
 from ..services.m3u_parser import parse_m3u_link
@@ -158,19 +159,26 @@ def put_config():
         return json_error("Informe domínio, usuário e senha para validar a conexão.", HTTPStatus.BAD_REQUEST)
 
     if db_credentials is not None:
+        url = URL.create(
+            "mysql+pymysql",
+            username=db_credentials["username"],
+            password=db_credentials["password"],
+            host=db_credentials["host"],
+            port=db_credentials["port"],
+            database=db_credentials["database"],
+        )
+
+        engine = None
         try:
-            connection = pymysql.connect(
-                host=db_credentials["host"],
-                port=db_credentials["port"],
-                user=db_credentials["username"],
-                password=db_credentials["password"],
-                database=db_credentials["database"],
-                connect_timeout=5,
-                read_timeout=5,
-                write_timeout=5,
-                charset="utf8mb4",
+            engine = create_engine(url, pool_pre_ping=True)
+            with engine.connect() as connection:  # pragma: no cover - depends on external resource
+                connection.execute(text("SELECT 1"))
+            connection_ready = True
+            logger.info(
+                "[account.config] XUI DB connection ok for user %s. Banco local permanece exclusivo do painel; XUI remoto validado sob demanda.",
+                user.id,
             )
-        except MySQLError as exc:  # pragma: no cover - depends on external resource
+        except (OperationalError, ProgrammingError) as exc:  # pragma: no cover - depends on external resource
             logger.warning(
                 "[account.config] Failed to connect to XUI DB for user %s: %s",
                 user.id,
@@ -180,15 +188,19 @@ def put_config():
                 f"Não foi possível conectar ao banco XUI: {exc}",
                 HTTPStatus.BAD_REQUEST,
             )
-
-        try:  # pragma: no cover - depends on external resource
-            connection.ping(reconnect=False)
-            connection_ready = True
+        except SQLAlchemyError as exc:  # pragma: no cover - depends on external resource
+            logger.warning(
+                "[account.config] Unexpected SQL error while testing XUI DB for user %s: %s",
+                user.id,
+                exc,
+            )
+            return json_error(
+                f"Não foi possível conectar ao banco XUI: {exc}",
+                HTTPStatus.BAD_REQUEST,
+            )
         finally:
-            try:
-                connection.close()
-            except MySQLError:
-                pass
+            if engine is not None:
+                engine.dispose()
 
         if not connection_ready:
             logger.warning(
