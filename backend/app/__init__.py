@@ -1,5 +1,6 @@
 from logging.config import dictConfig
 
+import flask
 from flask import Flask
 
 from .config import Config
@@ -88,6 +89,16 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
         ],
         expose_headers=["X-Tenant-ID"],
     )
+
+    @app.before_request
+    def handle_preflight():
+        """Ensure OPTIONS requests receive proper CORS headers."""
+
+        if flask.request.method == "OPTIONS":
+            app.logger.debug("Preflight handled for %s", flask.request.path)
+            return "", 200
+
+    app.logger.info("CORS preflight handler registered and active.")
 
     db.init_app(app)
     jwt.init_app(app)
