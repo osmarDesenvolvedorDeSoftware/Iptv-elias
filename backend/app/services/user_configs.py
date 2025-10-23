@@ -3,7 +3,7 @@ from __future__ import annotations
 import urllib.parse
 from datetime import datetime
 from typing import Any, Tuple
-from urllib.parse import urlparse
+from urllib.parse import unquote_plus, urlparse
 
 import bcrypt
 from flask import current_app
@@ -46,13 +46,13 @@ def parse_mysql_uri(uri: str | None) -> dict[str, Any] | None:
         return None
 
     scheme = parsed.scheme or "mysql+pymysql"
-    username = parsed.username
+    username = unquote_plus(parsed.username) if parsed.username else None
     host = parsed.hostname
 
     if not username or not host:
         return None
 
-    password = parsed.password
+    password = unquote_plus(parsed.password) if parsed.password else None
     port = parsed.port or 3306
     database = parsed.path.lstrip("/") or "xui"
     query = f"?{parsed.query}" if parsed.query else ""
