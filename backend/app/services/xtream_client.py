@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 import requests
@@ -106,25 +106,34 @@ class XtreamClient:
                     attempt,
                     sanitized_query,
                 )
-                session = getattr(self, "session", None)
-                if session is not None:
-                    resp = session.get(url, params=query, headers=headers, timeout=self.timeout)
-                else:
-                    resp = requests.get(url, params=query, headers=headers, timeout=self.timeout)
+                resp = self._perform_request(url, params=query, headers=headers)
 
-                content_type = resp.headers.get("content-type", "")
-                body_head = (resp.text or "")[:512]
+                status_code = getattr(resp, "status_code", None)
+                raw_headers = getattr(resp, "headers", {}) or {}
+                if not isinstance(raw_headers, MutableMapping):
+                    try:
+                        raw_headers = dict(raw_headers)
+                    except Exception:  # pragma: no cover - defensive fallback
+                        raw_headers = {}
+                content_type = str(raw_headers.get("content-type", ""))
+                body_head = str(getattr(resp, "text", "") or "")[:512]
                 body_head_lower = body_head.lower()
                 if (
-                    resp.status_code == 403
+                    status_code == 403
                     or "text/html" in content_type.lower()
+                    or "<html" in body_head_lower
                     or "attention required" in body_head_lower
                     or "cloudflare" in body_head_lower
                 ):
                     logger.warning(
+                        "[Xtream] Xtream bloqueado pelo Cloudflare em %s (status=%s)",
+                        url,
+                        status_code,
+                    )
+                    logger.warning(
                         "[Xtream] Detected HTML/403 from %s (status=%d) — body preview: %.200s",
                         url,
-                        resp.status_code,
+                        status_code,
                         body_head,
                     )
 
@@ -138,15 +147,32 @@ class XtreamClient:
                             )
                             cs = cloudscraper.create_scraper()  # type: ignore[call-arg]
                             cs.headers.update(headers)
-                            cookies = getattr(session, "cookies", None)
+                            cookies = getattr(self.session, "cookies", None)
                             if cookies is not None:
-                                cs.cookies.update(cookies)  # type: ignore[arg-type]
-                            cs_resp = cs.get(https_url, params=query, timeout=self.timeout)
-                            cs_content_type = cs_resp.headers.get("content-type", "")
-                            cs_body_head = (cs_resp.text or "")[:512]
+                                try:
+                                    cs.cookies.update(cookies)  # type: ignore[arg-type]
+                                except Exception:  # pragma: no cover - defensive
+                                    pass
+
+                            original_session = getattr(self, "session", None)
+                            try:
+                                self.session = cs  # type: ignore[assignment]
+                                cs_resp = self._perform_request(https_url, params=query, headers=headers)
+                            finally:
+                                self.session = original_session  # type: ignore[assignment]
+
+                            cs_headers = getattr(cs_resp, "headers", {}) or {}
+                            if not isinstance(cs_headers, MutableMapping):
+                                try:
+                                    cs_headers = dict(cs_headers)
+                                except Exception:  # pragma: no cover - defensive
+                                    cs_headers = {}
+                            cs_content_type = str(cs_headers.get("content-type", ""))
+                            cs_body_head = str(getattr(cs_resp, "text", "") or "")[:512]
                             cs_body_head_stripped = cs_body_head.strip()
+                            cs_status_code = getattr(cs_resp, "status_code", None)
                             if (
-                                cs_resp.status_code == 200
+                                cs_status_code == 200
                                 and (
                                     "application/json" in cs_content_type.lower()
                                     or cs_body_head_stripped.startswith("{")
@@ -172,12 +198,12 @@ class XtreamClient:
 
                             logger.warning(
                                 "[Xtream] cloudscraper fallback returned status=%d content-type=%s preview=%.200s",
-                                cs_resp.status_code,
+                                cs_status_code,
                                 cs_content_type,
                                 cs_body_head,
                             )
                             last_exc = XtreamError(
-                                f"cloudscraper fallback failed status={cs_resp.status_code}"
+                                f"cloudscraper fallback failed status={cs_status_code}"
                             )
                             continue
                         except Exception as exc:  # pragma: no cover - network failure handling
@@ -191,7 +217,9 @@ class XtreamClient:
                         last_exc = XtreamError("cloudflare blocked and cloudscraper not available")
                         continue
 
-                resp.raise_for_status()
+                raise_for_status = getattr(resp, "raise_for_status", None)
+                if callable(raise_for_status):
+                    raise_for_status()
 
                 try:
                     payload = resp.json()
@@ -200,7 +228,8 @@ class XtreamClient:
                     last_exc = XtreamError("Response not JSON")
                     continue
 
-                if https_base != base and resp.url.startswith(https_base):
+                resp_url = getattr(resp, "url", "")
+                if https_base != base and isinstance(resp_url, str) and resp_url.startswith(https_base):
                     self.base_url = https_base
                 return payload
 
@@ -213,6 +242,19 @@ class XtreamClient:
 
         logger.error("[Xtream] All %d attempts failed for action=%s", self.max_retries, action)
         raise XtreamError(f"Xtream request failed: {last_exc}") from last_exc
+
+    def _perform_request(
+        self,
+        url: str,
+        *,
+        params: Mapping[str, Any],
+        headers: Mapping[str, Any],
+    ) -> requests.Response:
+        session = getattr(self, "session", None)
+        timeout = getattr(self, "timeout", None) or 30
+        if session is not None and hasattr(session, "get"):
+            return session.get(url, params=params, headers=headers, timeout=timeout)  # type: ignore[return-value]
+        return requests.get(url, params=params, headers=headers, timeout=timeout)
 
     def _throttle(self) -> None:
         if self.throttle_ms > 0:
