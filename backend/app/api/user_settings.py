@@ -4,9 +4,10 @@ from http import HTTPStatus
 import logging
 from typing import Any, Mapping
 
-import pymysql
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy.engine import URL
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine, URL
+from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 
 from ..services import settings as settings_service
 from ..services.mysql_errors import (
@@ -191,19 +192,25 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
     if not host or not database:
         raise ValueError("Informe a URI do banco XUI para validar a conexão.")
 
+    url = URL.create(
+        "mysql+pymysql",
+        username=user or "",
+        password=password or "",
+        host=host,
+        port=port,
+        database=database,
+    )
+
+    engine: Engine | None = None
     try:
-        connection = pymysql.connect(
-            host=host,
-            port=port,
-            user=user or "",
-            password=password or "",
-            database=database,
-            connect_timeout=5,
-            read_timeout=5,
-            write_timeout=5,
-            charset="utf8mb4",
+        engine = create_engine(url, pool_pre_ping=True)
+        with engine.connect() as connection:  # pragma: no cover - depends on external DB
+            connection.execute(text("SELECT 1"))
+        logger.info(
+            "[DB] XUI DB connection ok for host %s. Banco local do painel permanece separado; XUI remoto validado sob demanda.",
+            host,
         )
-    except pymysql.MySQLError as exc:  # pragma: no cover - depends on external DB
+    except (OperationalError, ProgrammingError) as exc:  # pragma: no cover - depends on external DB
         if is_ssl_misconfiguration_error(exc):
             logger.warning(
                 "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
@@ -219,14 +226,11 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
             )
             raise MysqlAccessDeniedError(host=host, user=user or "", database=database) from exc
         raise RuntimeError(f"Não foi possível conectar ao banco XUI: {exc}") from exc
-    else:
-        try:
-            connection.ping(reconnect=False)
-        finally:
-            try:
-                connection.close()
-            except pymysql.MySQLError:
-                pass
+    except SQLAlchemyError as exc:  # pragma: no cover - depends on external DB
+        raise RuntimeError(f"Não foi possível conectar ao banco XUI: {exc}") from exc
+    finally:
+        if engine is not None:
+            engine.dispose()
 
 
 @bp.get("/settings")
