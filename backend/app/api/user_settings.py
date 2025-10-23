@@ -324,6 +324,10 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
         _mask_password_partial(password),
         _render_url_with_partial_password(url),
     )
+    logger.info(
+        "[DEBUG_DB_CONN] Senha final para engine: %s",
+        _mask_password_partial(password),
+    )
     if driver != "mysql+pymysql":
         logger.warning(
             "[SETTINGS][API] _test_db_connection driver inesperado=%s uri=%s",

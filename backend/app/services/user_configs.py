@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Tuple
 from urllib.parse import quote_plus, urlparse
@@ -27,6 +28,17 @@ def _ensure_integration(tenant_id: str) -> TenantIntegrationConfig:
         db.session.add(integration)
         db.session.flush()
     return integration
+
+
+_PERCENT_ENCODED_PATTERN = re.compile(r"%[0-9A-Fa-f]{2}")
+
+
+def safe_encode_password(password: str) -> str:
+    if not password:
+        return ""
+    if _PERCENT_ENCODED_PATTERN.search(password):
+        return password
+    return quote_plus(password)
 
 
 def parse_mysql_uri(uri: str | None) -> dict[str, Any] | None:
@@ -60,7 +72,7 @@ def parse_mysql_uri(uri: str | None) -> dict[str, Any] | None:
     encoded_user = quote_plus(username)
     password_part = ""
     if password is not None:
-        encoded_password = quote_plus(password)
+        encoded_password = safe_encode_password(password)
         password_part = f":{encoded_password}"
 
     sanitized = f"{scheme}://{encoded_user}{password_part}@{host}:{port}/{database}{query}{fragment}"
