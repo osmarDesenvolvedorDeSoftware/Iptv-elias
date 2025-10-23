@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine, URL
+from sqlalchemy.engine import Engine, URL, make_url
 from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 
 from ..services import settings as settings_service
@@ -26,6 +26,28 @@ bp = Blueprint("user_settings", __name__, url_prefix="/api")
 
 
 logger = logging.getLogger(__name__)
+
+
+def _password_state(value: str | None) -> str:
+    if value is None:
+        return "unset"
+    if value == "":
+        return "blank"
+    return "provided"
+
+
+def _render_safe_url(url: URL | str | None) -> str:
+    if url is None:
+        return "<nenhuma>"
+    if isinstance(url, str):
+        try:
+            url = make_url(url)
+        except Exception:
+            return url
+    try:
+        return url.render_as_string(hide_password=True)
+    except Exception:
+        return str(url)
 
 
 def _ssl_error_payload() -> dict[str, Any]:
@@ -97,23 +119,55 @@ def _collect_db_credentials(
         existing = current.get("db_pass")
         password = str(existing) if isinstance(existing, str) else existing
 
+    logger.debug(
+        "[SETTINGS][API] _collect_db_credentials host=%s port=%s user=%s database=%s password_state=%s provided_in_payload=%s payload_keys=%s",
+        host,
+        port,
+        user,
+        name,
+        _password_state(password),
+        password_provided,
+        sorted(str(key) for key in payload.keys()),
+    )
+
     return host, port, user, name, password, password_provided
 
 
 def _build_mysql_uri(host: str, port: int, user: str, password: str | None, database: str) -> str | None:
     if not host or not user or not database:
+        logger.debug(
+            "[SETTINGS][API] _build_mysql_uri faltando dados host=%s user=%s database=%s",
+            host,
+            user,
+            database,
+        )
         return None
 
-    return str(
-        URL.create(
-            "mysql+pymysql",
-            username=user,
-            password=password or "",
-            host=host,
-            port=port,
-            database=database,
-        )
+    url = URL.create(
+        "mysql+pymysql",
+        username=user,
+        password=password or "",
+        host=host,
+        port=port,
+        database=database,
     )
+
+    masked_uri = _render_safe_url(url)
+    driver = url.drivername
+    logger.debug(
+        "[SETTINGS][API] _build_mysql_uri resultado uri=%s driver=%s password_state=%s",
+        masked_uri,
+        driver,
+        _password_state(password),
+    )
+    if driver != "mysql+pymysql":
+        logger.warning(
+            "[SETTINGS][API] _build_mysql_uri driver inesperado=%s uri=%s",
+            driver,
+            masked_uri,
+        )
+
+    return str(url)
 
 
 def _serialize_response(config, settings_payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -192,6 +246,15 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
     if not host or not user or not database:
         raise ValueError("Informe host, usuário e banco do XUI para validar a conexão.")
 
+    logger.debug(
+        "[SETTINGS][API] _test_db_connection parâmetros host=%s port=%s user=%s database=%s password_state=%s",
+        host,
+        port,
+        user,
+        database,
+        _password_state(password),
+    )
+
     url = URL.create(
         "mysql+pymysql",
         username=user,
@@ -201,16 +264,44 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
         database=database,
     )
 
+    masked_uri = _render_safe_url(url)
+    driver = url.drivername
+    logger.debug(
+        "[SETTINGS][API] _test_db_connection URL=%s driver=%s",
+        masked_uri,
+        driver,
+    )
+    if driver != "mysql+pymysql":
+        logger.warning(
+            "[SETTINGS][API] _test_db_connection driver inesperado=%s uri=%s",
+            driver,
+            masked_uri,
+        )
+
     engine: Engine | None = None
     try:
         engine = create_engine(url, pool_pre_ping=True)
         with engine.connect() as connection:  # pragma: no cover - depends on external DB
             connection.execute(text("SELECT 1"))
+        logger.debug(
+            "[SETTINGS][API] _test_db_connection sucesso uri=%s driver=%s",
+            masked_uri,
+            driver,
+        )
         logger.info(
             "[DB] XUI DB connection ok for host %s. Banco local do painel permanece separado; XUI remoto validado sob demanda.",
             host,
         )
     except (OperationalError, ProgrammingError) as exc:  # pragma: no cover - depends on external DB
+        orig = getattr(exc, "orig", None)
+        logger.debug(
+            "[SETTINGS][API] _test_db_connection falhou uri=%s driver=%s exc=%s orig=%r orig_args=%r",
+            masked_uri,
+            driver,
+            exc.__class__.__name__,
+            orig,
+            getattr(orig, "args", ()),
+        )
         if is_ssl_misconfiguration_error(exc):
             logger.warning(
                 "[DB] Detected SSL misconfiguration on remote MySQL host %s (user=%s)",
@@ -227,6 +318,15 @@ def _test_db_connection(host: str, port: int, user: str, password: str | None, d
             raise MysqlAccessDeniedError(host=host, user=user or "", database=database) from exc
         raise RuntimeError(f"Não foi possível conectar ao banco XUI: {exc}") from exc
     except SQLAlchemyError as exc:  # pragma: no cover - depends on external DB
+        orig = getattr(exc, "orig", None)
+        logger.debug(
+            "[SETTINGS][API] _test_db_connection erro genérico uri=%s driver=%s exc=%s orig=%r orig_args=%r",
+            masked_uri,
+            driver,
+            exc.__class__.__name__,
+            orig,
+            getattr(orig, "args", ()),
+        )
         raise RuntimeError(f"Não foi possível conectar ao banco XUI: {exc}") from exc
     finally:
         if engine is not None:
@@ -254,6 +354,11 @@ def update_settings():
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict):
         return json_error("Payload inválido", HTTPStatus.BAD_REQUEST)
+
+    logger.debug(
+        "[SETTINGS][API] update_settings payload_keys=%s",
+        sorted(str(key) for key in payload.keys()),
+    )
 
     tenant_id, error = tenant_from_request()
     if error:
@@ -290,6 +395,10 @@ def update_settings():
         return jsonify(response), HTTPStatus.BAD_REQUEST
 
     db_uri = _build_mysql_uri(host, port, db_user, password, name)
+    logger.debug(
+        "[SETTINGS][API] update_settings db_uri=%s",
+        _render_safe_url(db_uri),
+    )
     try:
         config, _ = update_user_config(user, _build_user_payload(payload, db_uri=db_uri))
     except ValueError as exc:
@@ -314,6 +423,11 @@ def test_database():
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict):
         return json_error("Payload inválido", HTTPStatus.BAD_REQUEST)
+
+    logger.debug(
+        "[SETTINGS][API] test_database payload_keys=%s",
+        sorted(str(key) for key in payload.keys()),
+    )
 
     tenant_id, error = tenant_from_request()
     if error:
