@@ -2,13 +2,11 @@ import { defineConfig, loadEnv, splitVendorChunkPlugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
-const rootDir = resolve(__dirname, 'ui');
+const uiRoot = __dirname;
+const projectRoot = resolve(uiRoot, '..');
 
 function resolveApiBaseUrl(mode: string): string {
-  const projectEnv = loadEnv(mode, process.cwd(), '');
-  const uiEnv = rootDir === process.cwd() ? projectEnv : loadEnv(mode, rootDir, '');
-  const env = { ...projectEnv, ...uiEnv } as Record<string, string | undefined>;
-
+  const env = loadEnv(mode, uiRoot, '');
   const configured = env.VITE_API_BASE_URL || process.env.VITE_API_BASE_URL || '';
   const fallback = mode === 'development' ? 'http://localhost:5000' : '';
   const finalValue = (configured || fallback).trim();
@@ -37,17 +35,17 @@ export default defineConfig(({ mode }) => {
   resolveApiBaseUrl(mode);
 
   return {
-    root: rootDir,
+    root: uiRoot,
     base: './',
-    envDir: rootDir,
+    envDir: uiRoot,
     plugins: [react(), splitVendorChunkPlugin()],
     resolve: {
       alias: {
-        '@': resolve(rootDir, 'src'),
+        '@': resolve(uiRoot, 'src'),
       },
     },
     build: {
-      outDir: resolve(__dirname, 'dist'),
+      outDir: resolve(projectRoot, 'dist'),
       emptyOutDir: true,
       sourcemap: false,
       rollupOptions: {

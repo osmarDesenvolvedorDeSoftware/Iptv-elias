@@ -20,7 +20,8 @@ venv
 
 # javascript
 node_modules/
-dist/
+dist/*
+!dist/.gitkeep
 ui/node_modules/
 ui/dist/
 

@@ -9,6 +9,144 @@ Este repositório concentra duas frentes principais:
 
 As fases 1A, 1B, 1C e 1D do plano de migração já foram concluídas: a estrutura base da aplicação React (layouts, roteamento, tema), a camada de dados mockada e as páginas funcionais (Login, Importação, Bouquets, Logs e Configurações) estão prontas para evoluir o restante do painel.
 
+## 📁 Estrutura do projeto
+
+```
+Iptv-elias/
+├── backend/
+├── ui/
+│   ├── src/
+│   ├── public/
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── .env
+├── dist/
+└── ecosystem.config.js
+```
+
+- O frontend React fica isolado em `ui/` para evitar conflito com o backend Flask e facilitar deploys independentes.
+- O build otimizado sempre é gerado em `dist/` na raiz para que Nginx, PM2 ou outros servidores estáticos consigam servir os arquivos sem depender da pasta `ui/`.
+- O backend, workers e demais serviços continuam agrupados dentro de `backend/`.
+
+## ⚙️ Onde rodar os comandos do frontend
+
+Todos os comandos do Vite/React devem ser executados **dentro da pasta `ui/`**:
+
+```bash
+cd ui
+npm install      # instala dependências declaradas em ui/package.json
+npm run dev      # desenvolvimento (http://localhost:5173)
+npm run build    # gera artefatos otimizados em ../dist
+npm run preview  # servidor estático apontando para ../dist
+```
+
+O arquivo `ui/vite.config.ts` já define `root: __dirname` (ou seja, `ui/`) e `build.outDir: resolve(projectRoot, 'dist')`. Assim o Vite reconhece automaticamente `ui/src/` e `ui/public/` como diretórios padrão e despeja o build na raiz do projeto.
+
+## 🌱 Variáveis de ambiente do frontend
+
+O Vite lê variáveis do arquivo `ui/.env`. Para apontar o frontend ao backend Flask padrão (porta 5000), crie ou edite o arquivo com:
+
+```ini
+# ui/.env
+VITE_API_BASE_URL=http://<ip>:5000
+```
+
+Outras variáveis (como `VITE_USE_MOCK`) continuam disponíveis; consulte `ui/.env.example` para a lista completa. Durante o build o Vite também aceita valores exportados via shell (`export VITE_API_BASE_URL=...`).
+
+## 📦 Build e publicação do frontend
+
+O comando `npm run build` (executado dentro de `ui/`) cria a pasta `dist/` na raiz do repositório (`/root/Iptv-elias/dist`). Esse diretório pode ser servido de duas maneiras principais:
+
+1. **PM2 + `npm run preview`** – indicado para staging. Execute `pm2 start ecosystem.config.js` e use o processo `iptv-frontend` descrito abaixo.
+2. **Nginx (ou outro servidor estático)** – aponte o `root` do site para `/root/Iptv-elias/dist` após rodar o build. O `vite.config.ts` já produz caminhos relativos (`base: './'`), então basta expor o diretório.
+
+Sempre que o backend for atualizado, gere um novo build (`cd ui && npm run build`) antes de publicar.
+
+## 🧭 PM2 (sem Docker)
+
+O arquivo `ecosystem.config.js` controla os processos do backend e do frontend. O trecho abaixo mostra apenas os apps necessários, todos com logs padronizados:
+
+```js
+const path = require('path');
+
+const projectRoot = path.resolve(__dirname);
+const backendDir = path.join(projectRoot, 'backend');
+const frontendDir = path.join(projectRoot, 'ui');
+const pythonBin = path.join(backendDir, 'venv', 'bin', 'python3');
+const envFile = path.join(backendDir, '.env');
+
+const backendLogsDir = '/var/log/iptv-backend';
+const frontendLogsDir = '/var/log/iptv-ui';
+
+module.exports = {
+  apps: [
+    {
+      name: 'iptv-backend',
+      cwd: backendDir,
+      script: pythonBin,
+      args: ['-m', 'app'],
+      interpreter: 'none',
+      env_file: envFile,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '512M',
+      env: {
+        PYTHONUNBUFFERED: '1',
+      },
+      out_file: path.join(backendLogsDir, 'backend.out.log'),
+      error_file: path.join(backendLogsDir, 'backend.err.log'),
+      merge_logs: true,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+    },
+    {
+      name: 'iptv-worker',
+      cwd: backendDir,
+      script: pythonBin,
+      args: ['-m', 'app.worker'],
+      interpreter: 'none',
+      env_file: envFile,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '512M',
+      env: {
+        PYTHONUNBUFFERED: '1',
+      },
+      out_file: path.join(backendLogsDir, 'worker.out.log'),
+      error_file: path.join(backendLogsDir, 'worker.err.log'),
+      merge_logs: true,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+    },
+    {
+      name: 'iptv-frontend',
+      cwd: frontendDir,
+      script: 'npm',
+      args: 'run dev',
+      interpreter: 'none',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '512M',
+      env: {
+        NODE_ENV: 'development',
+      },
+      out_file: path.join(frontendLogsDir, 'frontend.out.log'),
+      error_file: path.join(frontendLogsDir, 'frontend.err.log'),
+      merge_logs: true,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+    },
+  ],
+};
+```
+
+- Ajuste permissões antes de iniciar: `sudo mkdir -p /var/log/iptv-backend /var/log/iptv-ui && sudo chown $(whoami) /var/log/iptv-*`.
+- Em produção, troque `npm run dev` por um servidor estático (Nginx/PM2 com `serve`) apontando para `dist/`.
+
+## ℹ️ Por que organizar assim?
+
+1. **Frontend dentro de `ui/`** – mantém o projeto React isolado do backend Flask, evitando conflitos de dependências e facilitando a manutenção por equipes distintas.
+2. **Vite rodando na pasta do código-fonte** – o Vite espera encontrar `src/`, `public/` e os arquivos de configuração no diretório raiz do frontend. Executá-lo fora disso (na raiz do repositório) exige hacks e gera confusão com `.env`.
+3. **Build em `dist/` na raiz** – permite publicar backend e frontend no mesmo servidor. O Nginx pode servir `dist/` enquanto o Gunicorn/PM2 atende a API Flask em paralelo, mantendo tudo dentro de `/root/Iptv-elias`.
+
+
 ## Estrutura atual
 
 ```
@@ -131,13 +269,13 @@ Consulte `docs/iptv-ui-plan.md` para o plano completo de implementação das fas
    - `logout` limpa os tokens e força o redirecionamento para `/login`.
 
 3. **Alternar entre modos mock vs. real**
-   - Modo mock: `VITE_USE_MOCK=true npm run dev` (ou `npm run dev -- --mock`, garantindo que a flag defina `VITE_USE_MOCK=true`).
-   - Modo real: `npm run dev` com `.env.local` apontando para o backend HTTP.
+   - Modo mock: `cd ui && VITE_USE_MOCK=true npm run dev` (ou, já dentro de `ui/`, `VITE_USE_MOCK=true npm run dev -- --mock`).
+   - Modo real: `cd ui && npm run dev` com `.env.local` apontando para o backend HTTP.
  - Em produção, defina `VITE_API_BASE_URL` e mantenha `VITE_USE_MOCK=false` para que todos os services utilizem o `ApiAdapter`.
 
 ## 🚀 Deploy Automatizado
 
-- O workflow **Deploy IPTV UI** executa lint (`eslint . --max-warnings=0`), build (`npm run build`) e publica automaticamente o conteúdo de `dist/` no branch `gh-pages` a cada push em `main`.
+- O workflow **Deploy IPTV UI** executa lint (`eslint`), build (`npm run build` dentro de `ui/`) e publica automaticamente o conteúdo de `dist/` no branch `gh-pages` a cada push em `main`.
 - Para publicar na **Vercel**, cadastre os segredos `VERCEL_TOKEN`, `VERCEL_ORG_ID` e `VERCEL_PROJECT_ID`; o mesmo workflow detecta os valores e executa `vercel deploy` após o build.
 - Deploy manual: acione **Actions → Deploy IPTV UI → Run workflow**, escolha o destino (`auto`, `gh-pages`, `vercel` ou `both`) e confirme. Útil para hotfixes ou rollback imediato.
 - Relatórios completos e instruções de fallback estão disponíveis em [`docs/DEPLOY_PLAYBOOK.md`](docs/DEPLOY_PLAYBOOK.md).
@@ -146,14 +284,16 @@ Consulte `docs/iptv-ui-plan.md` para o plano completo de implementação das fas
 
 1. **Instale dependências e gere o build otimizado**
    ```bash
+   cd ui
    npm install
    npm run build
    ```
-   Os artefatos ficam em `dist/` (equivalente a `ui/dist` quando acessado a partir da pasta `ui/`). Utilize `npm run preview` para validar com o servidor estático do Vite.
+   Os artefatos ficam em `dist/` na raiz do repositório. Use `npm run preview` (a partir de `ui/`) para validar o build com o servidor estático do Vite.
 
 2. **Alternar entre mocks e API real**
-   - Crie arquivos `.env.local`, `.env.production` conforme o ambiente.
+   - Centralize as variáveis em `ui/.env` (ou `.env.local`, `.env.production` etc.).
    - Defina `VITE_USE_MOCK=true` para desenvolvimento off-line e `false` em produção.
+   - Rode `npm run dev` sempre a partir de `ui/` para garantir que o Vite encontre o `.env` correto.
 
 3. **Checklist rápido de QA manual**
    - Login autentica e redireciona para Importação.
