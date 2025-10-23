@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import urllib.parse
 from datetime import datetime
 from typing import Any, Tuple
@@ -11,6 +10,7 @@ from flask import current_app
 
 from ..extensions import db
 from ..models import TenantIntegrationConfig, User, UserConfig
+from ..utils.db_utils import safe_encode_password
 
 
 def _ensure_user_config(user: User) -> UserConfig:
@@ -29,15 +29,6 @@ def _ensure_integration(tenant_id: str) -> TenantIntegrationConfig:
         db.session.add(integration)
         db.session.flush()
     return integration
-
-
-def safe_encode_password(password: str) -> str:
-    if not password:
-        return ""
-    if re.search(r"%[0-9A-Fa-f]{2}", password):
-        return password
-    return urllib.parse.quote_plus(password)
-
 
 def parse_mysql_uri(uri: str | None) -> dict[str, Any] | None:
     if not isinstance(uri, str):
